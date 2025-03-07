@@ -30,4 +30,40 @@ Pipfile
 Pipfile.lock
 requirements.txt
 
-# Ignore compi
+# Ignore compiled binary files
+*.so
+*.dll
+*.exe
+*.o
+*.a
+*.out
+
+# Ignore Git files
+.git/
+
+# React-specific ignores
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/build
+/.cache
+/.parcel-cache
+/.next
+/out
+*.tsbuildinfo
+
+# Ignore React environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Ignore React editor-specific files
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
