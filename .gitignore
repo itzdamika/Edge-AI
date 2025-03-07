@@ -1,0 +1,33 @@
+# Ignore Python compiled files
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Ignore virtual environments
+venv/
+env/
+
+# Ignore system-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore IDE/editor settings
+.vscode/
+*.swp
+*.swo
+
+# Ignore logs and temp files
+*.log
+*.tmp
+
+# Ignore secrets and credentials (adjust if needed)
+client_secret_*.json
+*.env
+
+# Ignore dependencies (if using pip)
+Pipfile
+Pipfile.lock
+requirements.txt
+
+# Ignore compi
