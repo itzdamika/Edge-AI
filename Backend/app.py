@@ -50,6 +50,7 @@ class MainApp:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        self._setup_routes()
 
     def _setup_routes(self) -> None:
         @self.app.get("/")

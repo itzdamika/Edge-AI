@@ -28,7 +28,6 @@ client_secret_*.json
 # Ignore dependencies (if using pip)
 Pipfile
 Pipfile.lock
-requirements.txt
 
 # Ignore compiled binary files
 *.so
