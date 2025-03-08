@@ -62,12 +62,10 @@ openai_client = AzureOpenAI(
 engine = pyttsx3.init()
 engine.setProperty("rate", 150)
 
-# Attempt to select a more natural-sounding voice if available
 voices = engine.getProperty("voices")
 chosen_voice = None
 
-# List of preferred voice identifiers (adjust these as needed for your system)
-preferred_voice_names = ["Zira", "David", "Alex"]  # Windows: "Zira" or "David"; macOS: "Alex"
+preferred_voice_names = ["Zira", "David", "Alex"]
 
 for voice in voices:
     if any(name in voice.name for name in preferred_voice_names):
@@ -100,6 +98,9 @@ def recognize_speech():
             logger.error("Could not request results, check your internet connection")
             return None
 
+# ---------------------------------------------------------------------------
+# OpenAI Completion Helper
+# ---------------------------------------------------------------------------
 async def _create_completion(messages: list, **kwargs) -> str:
     """
     Helper function to reduce repetitive code for calling the OpenAI API.
@@ -119,6 +120,10 @@ async def _create_completion(messages: list, **kwargs) -> str:
     )
     return response.choices[0].message.content.strip()
 
+
+# ---------------------------------------------------------------------------
+# Command Handling Functions
+# ---------------------------------------------------------------------------
 async def handle_commands(user_message: str) -> str:
     messages = [
         {"role": "system", "content": command_prompt},
@@ -187,11 +192,17 @@ async def process_user_query(user_message: str):
         logger.error("Error in process_message", error=str(e))
         return "An error occurred while processing your request."
 
+# ---------------------------------------------------------------------------
+# Speak Response
+# ---------------------------------------------------------------------------
 def speak_response(response_text):
     print(f"GPT Response: {response_text}")
     engine.say(response_text)
     engine.runAndWait()
 
+# ---------------------------------------------------------------------------
+# Main Loop
+# ---------------------------------------------------------------------------
 async def main():
     while True:
         user_text = recognize_speech()
