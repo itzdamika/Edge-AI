@@ -16,7 +16,7 @@ class Config(BaseSettings):
     AZURE_OPENAI_API_KEY: str
     AZURE_OPENAI_DEPLOYMENT_ID: str
     AZURE_ENDPOINT: str
-
+    
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 # Load config

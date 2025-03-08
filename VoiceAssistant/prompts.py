@@ -58,3 +58,6 @@ You are a highly intelligent and responsive Smart Home Assistant. Your primary r
 Your goal is to be the **ultimate Smart Home Assistant**—intuitive, reliable, and engaging. You must always ensure accuracy, efficiency, and a seamless smart home experience.
 
 """
+
+intent_prompt = """
+"""
