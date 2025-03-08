@@ -46,3 +46,5 @@ model.compile(optimizer="adam", loss="mean_squared_error")
 model.summary()
 
 model.fit(X_train, y_train, epochs=10, batch_size=32)
+
+model.save("lstm_model.h5")
