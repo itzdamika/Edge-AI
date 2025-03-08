@@ -1,23 +1,31 @@
 import speech_recognition as sr
 import pyttsx3
 import asyncio
-import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from openai import AzureOpenAI
 
-# Load environment variables
-load_dotenv()
+# ---------------------------------------------------------------------------
+# Configuration Management with pydantic_settings
+# ---------------------------------------------------------------------------
+class Config(BaseSettings):
+    """
+    Application configuration using pydantic_settings.
+    Loads environment variables from a .env file.
+    """
+    AZURE_OPENAI_API_KEY: str
+    AZURE_OPENAI_DEPLOYMENT_ID: str
+    AZURE_ENDPOINT: str
 
-# Azure OpenAI Credentials
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
-AZURE_OPENAI_DEPLOYMENT_ID = os.getenv("AZURE_OPENAI_DEPLOYMENT_ID")
-AZURE_ENDPOINT = os.getenv("AZURE_ENDPOINT")
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+
+# Load config
+config = Config()
 
 # Initialize Azure OpenAI client
 openai_client = AzureOpenAI(
-    api_key=AZURE_OPENAI_API_KEY,
+    api_key=config.AZURE_OPENAI_API_KEY,
     api_version="2024-05-01-preview",
-    azure_endpoint=AZURE_ENDPOINT,
+    azure_endpoint=config.AZURE_ENDPOINT,
 )
 
 # Initialize Text-to-Speech Engine
@@ -51,7 +59,7 @@ async def chat_with_gpt(user_input):
 
     response = await asyncio.to_thread(
         lambda: openai_client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT_ID,
+            model=config.AZURE_OPENAI_DEPLOYMENT_ID,
             messages=messages,
             max_tokens=100
         )
