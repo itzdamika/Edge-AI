@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import json
 from datetime import datetime
 import uuid
+import cv2 # type: ignore
 
 app = FastAPI()
 
@@ -16,6 +18,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize camera
+camera = cv2.VideoCapture(0)
+
+def generate_frames():
+    while True:
+        success, frame = camera.read()
+        if not success:
+            break
+        else:
+            ret, buffer = cv2.imencode('.jpg', frame)
+            frame = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+@app.get("/video_feed")
+async def video_feed():
+    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 # Data models
 class User(BaseModel):
@@ -36,11 +56,13 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+# Load users from JSON file
 def load_users():
     try:
         with open("users.json", "r") as f:
             return json.load(f)
     except FileNotFoundError:
+        # Create default users if file doesn't exist
         default_users = [
             {
                 "id": str(uuid.uuid4()),
@@ -59,6 +81,7 @@ def load_users():
             json.dump(default_users, f)
         return default_users
 
+# Initialize devices
 devices = [
     {
         "id": str(uuid.uuid4()),
