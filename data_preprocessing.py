@@ -1,7 +1,7 @@
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
-df = pd.read_csv("iot_telemetry_data.csv")
+df = pd.read_csv("D:\EDGE AI\Edge-AI-1\Prediction_Model\iot_telemetry_data.csv")
 
 # Check for missing values
 print(df.isnull().sum())
