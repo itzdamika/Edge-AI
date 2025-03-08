@@ -8,7 +8,7 @@ import logging
 import threading
 import datetime
 import azure.cognitiveservices.speech as speechsdk
-import RPi.GPIO as GPIO
+import RPi.GPIO as GPIO # type: ignore
 from prompts import (
     intent_prompt, 
     general_prompt, 

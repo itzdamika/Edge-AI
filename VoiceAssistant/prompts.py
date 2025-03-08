@@ -19,7 +19,7 @@ Classify the intent of the user's message into one of these three categories (ge
 """
 
 general_prompt = """
-You are a Smart Home Assistant. Your job is to respond **quickly and concisely** to user queries. Keep answers short, direct, and efficient. 
+You are a SmartAura Smart Home Assistant. Your job is to respond **quickly and concisely** to user queries. Keep answers short, direct, and efficient. 
 
 ### **Behavior Guidelines:**
 - **Instant Responses:** Reply **immediately** with the most relevant answer.
