@@ -5,3 +5,4 @@ pyttsx3
 pyaudio
 azure-cognitiveservices-speech
 structlog
+RPi.GPIO
