@@ -54,7 +54,7 @@ class MainApp:
 
     def _setup_routes(self) -> None:
         @self.app.get("/")
-        def default():
+        def _default():
             """
             Default chat endpoint.
             """
