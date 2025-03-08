@@ -58,7 +58,7 @@ openai_client = AzureOpenAI(
 
 # Initialize Text-to-Speech Engine
 engine = pyttsx3.init()
-engine.setProperty("rate", 150)  # Adjust speech rate
+engine.setProperty("rate", 150)
 
 # Function to capture voice input
 def recognize_speech():
@@ -105,23 +105,41 @@ async def handle_commands(user_message: str) -> str:
     command = await _create_completion(messages)
     logger.info("Detected Command", intent=command)
 
-    if command.startswith("ac-control-"):
-        ac_temp = command.split("-")[-1] if command != "ac-error" else None
-        return f"Setting the AC temperature to {ac_temp}°C" if ac_temp else "AC command not recognized."
+    if command == "ac-control-on":
+        return "Turning on the AC."
+    elif command == "ac-control-off":
+        return "Turning off the AC."
+    elif command.startswith("ac-control-"):
+        try:
+            ac_temp = int(command.split("-")[-1])
+            return f"Setting the AC temperature to {ac_temp}°C."
+        except ValueError:
+            return "Invalid temperature setting for AC."
 
+    elif command == "fan-control-on":
+        return "Turning on the Fan."
+    elif command == "fan-control-off":
+        return "Turning off the Fan."
     elif command.startswith("fan-control-"):
-        fan_speed = command.split("-")[-1] if command != "fan-error" else None
-        return f"Setting the fan speed to {fan_speed}" if fan_speed else "Fan command not recognized."
+        try:
+            fan_speed = int(command.split("-")[-1])
+            if fan_speed in [1, 2, 3]:
+                return f"Setting the fan speed to {fan_speed}."
+            else:
+                return "Invalid fan speed. Please choose between 1, 2, or 3."
+        except ValueError:
+            return "Invalid fan speed setting."
 
     elif command == "light-control-on":
-        return "Turning on the Light"
+        return "Turning on the Light."
     elif command == "light-control-off":
-        return "Turning off the Light"
+        return "Turning off the Light."
 
     elif command == "no-access":
         return "Sorry, I don't have access to that device."
 
     return "Sorry, I didn't understand your request."
+
 
 async def handle_general(user_message: str) -> str:
     messages = [
