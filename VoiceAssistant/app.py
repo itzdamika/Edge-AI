@@ -18,7 +18,6 @@ from prompts import (
 # ---------------------------------------------------------------------------
 # GPIO Setup for LEDs
 # ---------------------------------------------------------------------------
-# Use BCM numbering
 GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
 
@@ -114,9 +113,6 @@ class ConversationGraph:
             return "\n".join([f"{node['role']}: {node['message']}" for node in relevant_nodes])
     
     def clear_history(self) -> None:
-        """
-        Clears the conversation history.
-        """
         with self.lock:
             self.nodes.clear()
             logger.info("Conversation history cleared.")
@@ -156,7 +152,6 @@ class DeviceStateManager:
     def set_ac_temperature(self, temp: int) -> (bool, str):  # type: ignore
         with self.lock:
             if self.state["ac"]["status"] != "on":
-                # If AC is off, turn it on with the given temperature.
                 self.state["ac"]["status"] = "on"
                 self.state["ac"]["temperature"] = temp
                 return True, f"Turning on the AC and setting temperature to {temp}°C."
@@ -218,16 +213,19 @@ speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, au
 # ---------------------------------------------------------------------------
 # Speech Recognition Function
 # ---------------------------------------------------------------------------
-def recognize_speech():
+def recognize_speech(timeout=5):
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
         print("Listening...")
         recognizer.adjust_for_ambient_noise(source)
         try:
-            audio = recognizer.listen(source, timeout=5)
+            audio = recognizer.listen(source, timeout=timeout)
             text = recognizer.recognize_google(audio)
             logger.info("User Message", text=text)
             return text
+        except sr.WaitTimeoutError:
+            logger.error("Listening timed out waiting for phrase to start")
+            return None
         except sr.UnknownValueError:
             logger.error("Could not understand the audio")
             return None
@@ -239,10 +237,6 @@ def recognize_speech():
 # OpenAI Completion Helper
 # ---------------------------------------------------------------------------
 async def _create_completion(messages: list, **kwargs) -> str:
-    """
-    Helper function to reduce repetitive code for calling the OpenAI API.
-    Runs the API call in a thread.
-    """
     default_kwargs = {
         "model": config.AZURE_OPENAI_DEPLOYMENT_ID,
         "max_tokens": 100,
@@ -268,7 +262,6 @@ async def handle_commands(user_message: str) -> str:
     command = await _create_completion(messages)
     logger.info("Detected Command", intent=command)
 
-    # Handle AC commands with state checking and LED control
     if command == "ac-control-on":
         if not device_state_manager.set_ac_on():
             return "AC is already turned on."
@@ -289,7 +282,6 @@ async def handle_commands(user_message: str) -> str:
         except ValueError:
             return "Invalid temperature setting for AC."
     
-    # Handle Fan commands with state checking and LED control
     elif command == "fan-control-on":
         if not device_state_manager.set_fan_on():
             return "Fan is already turned on."
@@ -312,7 +304,6 @@ async def handle_commands(user_message: str) -> str:
         except ValueError:
             return "Invalid fan speed setting."
     
-    # Handle Light commands with state checking and LED control
     elif command == "light-control-on":
         if not device_state_manager.set_light_on():
             return "Light is already turned on."
@@ -382,17 +373,38 @@ async def clear_history_periodically():
         conversation_graph.clear_history()
 
 # ---------------------------------------------------------------------------
-# Main Loop
+# Main Loop with Idle Mode Implementation
 # ---------------------------------------------------------------------------
 async def main():
-    # Start the periodic conversation history clearing task.
     asyncio.create_task(clear_history_periodically())
+    
+    idle_mode = False
+    last_activity_time = datetime.datetime.now(datetime.timezone.utc)
+    
     while True:
-        user_text = recognize_speech()
-        if user_text:
-            response = await process_user_query(user_text)
-            logger.info("Assistant Response", response=response)
-            speak_response(response)
+        current_time = datetime.datetime.now(datetime.timezone.utc)
+        # If not idle and 30 seconds have passed without valid speech, enter idle mode.
+        if not idle_mode and (current_time - last_activity_time).total_seconds() >= 30:
+            idle_mode = True
+            print("No activity for 30 seconds. Entering idle mode.")
+        
+        if idle_mode:
+            print("Idle mode: say 'hello assistant' to wake me up.")
+            user_text = recognize_speech(timeout=5)
+            if user_text:
+                logger.info("Idle mode input", text=user_text)
+                if "hello assistant" in user_text.lower():
+                    speak_response("Yes, I'm here")
+                    idle_mode = False
+                    last_activity_time = datetime.datetime.now(datetime.timezone.utc)
+            await asyncio.sleep(1)
+        else:
+            user_text = recognize_speech(timeout=5)
+            if user_text:
+                last_activity_time = datetime.datetime.now(datetime.timezone.utc)
+                response = await process_user_query(user_text)
+                logger.info("Assistant Response", response=response)
+                speak_response(response)
 
 if __name__ == "__main__":
     try:
