@@ -3,6 +3,7 @@ import pyttsx3
 import asyncio
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from openai import AzureOpenAI
+from prompts import prompt
 
 # ---------------------------------------------------------------------------
 # Configuration Management with pydantic_settings
@@ -50,10 +51,11 @@ def recognize_speech():
             print("Could not request results, check your internet connection")
             return None
 
+
 # Function to send user query to Azure GPT-4o
 async def chat_with_gpt(user_input):
     messages = [
-        {"role": "system", "content": "You are a helpful AI assistant."},
+        {"role": "system", "content": prompt},
         {"role": "user", "content": user_input},
     ]
 

@@ -2,3 +2,4 @@ openai
 pydantic_settings
 speechrecognition
 pyttsx3
+pyaudio
