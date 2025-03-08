@@ -3,7 +3,7 @@ import pyttsx3
 import asyncio
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from openai import AzureOpenAI
-from prompts import ( prompt, intent_prompt, general_prompt )
+from prompts import ( prompt, intent_prompt, general_prompt, command_prompt )
 
 # -----------------------------------------------------------------------------
 # Structured Logging Configuration using structlog
@@ -76,10 +76,39 @@ async def _create_completion(messages: list, **kwargs) -> str:
 
 async def handle_commands(user_message: str) -> str:
     messages = [
-        {"role": "system", "content": prompt},
+        {"role": "system", "content": command_prompt},
         {"role": "user", "content": f"Current Question: {user_message}"}
     ]
-    return await _create_completion(messages)
+    command = await _create_completion(messages)
+    
+    if command == 'ac-control-on':
+        return "Turning on the AC"
+    elif command == 'ac-control-off':
+        return "Turning off the AC"
+    elif command == 'ac-control-25':
+        ac_temp = 
+        return f"Setting the ac temperature to {ac_temp}°C"
+    elif command == 'ac-error':
+        return ""
+    elif command == 'fan-control-on':
+        return "Turning on the Fam"
+    elif command == 'fan-control-off':
+        return "Turning off the Fan"
+    elif command == 'fan-control-1':
+        fan_speed = 
+        return f"Setting the fan speed to {fan_speed}"
+    elif command == 'fan-error':
+        return ""
+    elif command == 'light-control-on':
+        return "Turning on the Light"
+    elif command == 'light-control-off':
+        return "Turning off the Light"
+    elif command == 'light-error':
+        return ""
+    elif command == 'no-access':
+        return "Sorry I don't have access for the specific item"
+    else:
+        return "Sorry I did't understand your request"
 
 async def handle_general(user_message: str) -> str:
     messages = [
@@ -88,7 +117,7 @@ async def handle_general(user_message: str) -> str:
     ]
     return await _create_completion(messages)
 
-async def process_message(user_message: str):
+async def process_user_query(user_message: str):
     try:
         # Detect intent.
         intent_messages = [
@@ -104,7 +133,13 @@ async def process_message(user_message: str):
         elif detected_intent == "general-query":
             response_text = await handle_general(user_message)
         
-        return detected_intent, response_text
+        return response_text
     except Exception as e:
         logger.error("Error in process_message", error=str(e))
         return "error"
+
+# Function to speak the response
+def speak_response(response_text):
+    print(f"GPT Response: {response_text}")
+    engine.say(response_text)
+    engine.runAndWait()
