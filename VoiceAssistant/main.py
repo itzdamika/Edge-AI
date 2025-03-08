@@ -1,12 +1,12 @@
 import speech_recognition as sr
-import pyttsx3
 import asyncio
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from openai import AzureOpenAI
 import structlog
 import sys
 import logging
-from prompts import ( intent_prompt, general_prompt, command_prompt )
+import azure.cognitiveservices.speech as speechsdk
+from prompts import (intent_prompt, general_prompt, command_prompt)
 
 # ---------------------------------------------------------------------------
 # Structured Logging Configuration
@@ -33,7 +33,7 @@ structlog.configure(
 logger = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
-# Configuration Management with pydantic_settings
+# Configuration Management with pydantic_settings (for Azure OpenAI)
 # ---------------------------------------------------------------------------
 class Config(BaseSettings):
     """
@@ -57,29 +57,20 @@ openai_client = AzureOpenAI(
 )
 
 # ---------------------------------------------------------------------------
-# Initialize Text-to-Speech Engine with a more natural voice
+# Azure Speech Service Configuration for Natural Neural Voice
 # ---------------------------------------------------------------------------
-engine = pyttsx3.init()
-engine.setProperty("rate", 150)
+SPEECH_KEY = "AmewBM3Olz7oZeVnhVp2tqAdQ6wbuHGFIhTUcO1GFNP2CmAYLOn9JQQJ99BCACqBBLyXJ3w3AAAYACOGeDlD"
+SERVICE_REGION = "southeastasia"
+TTS_ENDPOINT = "https://southeastasia.tts.speech.microsoft.com/cognitiveservices/v1"
 
-voices = engine.getProperty("voices")
-chosen_voice = None
-
-preferred_voice_names = ["Zira", "David", "Alex"]
-
-for voice in voices:
-    if any(name in voice.name for name in preferred_voice_names):
-        chosen_voice = voice.id
-        print(f"Selected voice: {voice.name}")
-        break
-
-if chosen_voice:
-    engine.setProperty("voice", chosen_voice)
-else:
-    print("Preferred voice not found; using default voice.")
+speech_config = speechsdk.SpeechConfig(subscription=SPEECH_KEY, region=SERVICE_REGION)
+speech_config.set_property(speechsdk.PropertyId.SpeechServiceConnection_Endpoint, TTS_ENDPOINT)
+speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
+audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
+speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
 
 # ---------------------------------------------------------------------------
-# Speech Recognition and API Call Functions
+# Speech Recognition Function
 # ---------------------------------------------------------------------------
 def recognize_speech():
     recognizer = sr.Recognizer()
@@ -119,7 +110,6 @@ async def _create_completion(messages: list, **kwargs) -> str:
         )
     )
     return response.choices[0].message.content.strip()
-
 
 # ---------------------------------------------------------------------------
 # Command Handling Functions
@@ -193,12 +183,18 @@ async def process_user_query(user_message: str):
         return "An error occurred while processing your request."
 
 # ---------------------------------------------------------------------------
-# Speak Response
+# Speak Response using Azure Neural TTS
 # ---------------------------------------------------------------------------
 def speak_response(response_text):
     print(f"GPT Response: {response_text}")
-    engine.say(response_text)
-    engine.runAndWait()
+    result = speech_synthesizer.speak_text_async(response_text).get()
+    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        print("Speech synthesized successfully.")
+    else:
+        # Access cancellation details directly from the result
+        cancellation_details = result.cancellation_details
+        print("Speech synthesis canceled:", cancellation_details.reason)
+        print("Error details:", cancellation_details.error_details)
 
 # ---------------------------------------------------------------------------
 # Main Loop
