@@ -4,8 +4,7 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 
-# Load the cleaned dataset
-df = pd.read_csv("cleaned_telemetry_data.csv")
+df = pd.read_csv("D:\EDGE AI\Edge-AI-1\Data\cleaned_telemetry_data.csv")
 
 # Select only numerical columns for training
 features = ["temp", "humidity", "co", "lpg", "smoke"]
@@ -27,7 +26,7 @@ def create_sequences(data, time_steps=10):
 TIME_STEPS = 10
 X, y = create_sequences(data_scaled, TIME_STEPS)
 
-# Split into training (80%) and testing (20%)
+# Splitting testing and training sets
 split = int(0.8 * len(X))
 X_train, X_test = X[:split], X[split:]
 y_train, y_test = y[:split], y[split:]
