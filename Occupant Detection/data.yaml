@@ -1,0 +1,6 @@
+path: ..\Occupant Detection\Input\data
+train: ..\Occupant Detection\split_dataset\train
+val: ..\Occupant Detection\split_dataset\val
+nc: 1
+names:
+- Person
