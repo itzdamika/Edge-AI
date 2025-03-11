@@ -1,6 +1,5 @@
 input/
 split_dataset/
-runs/
 
 # Ignore virtual environments
 venv/
