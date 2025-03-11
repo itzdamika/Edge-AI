@@ -1,6 +1,9 @@
 input/
 split_dataset/
+runs/
 
 # Ignore virtual environments
 venv/
 env/
+
+yolov8n.pt
