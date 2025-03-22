@@ -1,36 +1,48 @@
-# rpi_http_backend.py
+# rpi_http_backend_pigpio.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import time, threading
 import board
 import adafruit_dht
-from gpiozero import MotionSensor, Button
+import cv2
+import base64
+import pigpio  # Use pigpio directly for digital I/O
 
 app = FastAPI()
 
-# Enable CORS so that your React dashboard (or other clients) can access the API.
+# Enable CORS so that external clients (like your React dashboard) can access the API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this to your dashboard's domain.
+    allow_origins=["*"],  # In production, restrict this to your trusted domains.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ----- Sensor Initialization -----
-# DHT22 on GPIO27 (avoid conflicts on GPIO4)
+# Initialize DHT22 sensor on GPIO27 (to avoid conflicts with GPIO4)
 dhtDevice = adafruit_dht.DHT22(board.D27)
 
-# MQ‑135 digital output (assumed wired to GPIO18)
-air_quality_sensor = Button(18)
+# Initialize pigpio (make sure the pigpio daemon is running)
+pi = pigpio.pi()
+if not pi.connected:
+    raise SystemExit("Could not connect to pigpio daemon. Please start it with 'sudo systemctl start pigpiod'.")
 
-# HC‑SR501 Motion Sensor (wired to GPIO17)
-motion_sensor = MotionSensor(17)
+# Define GPIO pins for digital sensors
+AIR_QUALITY_PIN = 18    # MQ‑135 digital output pin
+MOTION_SENSOR_PIN = 17  # HC‑SR501 motion sensor pin
+
+# Set up digital sensor pins with pull-down resistors (adjust if your hardware requires pull-up)
+pi.set_mode(AIR_QUALITY_PIN, pigpio.INPUT)
+pi.set_pull_up_down(AIR_QUALITY_PIN, pigpio.PUD_DOWN)
+
+pi.set_mode(MOTION_SENSOR_PIN, pigpio.INPUT)
+pi.set_pull_up_down(MOTION_SENSOR_PIN, pigpio.PUD_DOWN)
 
 def read_sensors():
-    """Read sensor data and return as a dictionary."""
+    """Read sensor data and return it as a dictionary."""
     data = {}
-    # Read DHT22 sensor data (Temperature & Humidity)
+    # Read DHT22 temperature and humidity
     try:
         data['temperature'] = dhtDevice.temperature
         data['humidity'] = dhtDevice.humidity
@@ -39,16 +51,20 @@ def read_sensors():
         data['temperature'] = None
         data['humidity'] = None
 
-    # Read MQ‑135 digital output: assume HIGH means "Poor" air quality
+    # Read MQ‑135 digital output using pigpio:
     try:
-        data['air_quality'] = "Poor" if air_quality_sensor.is_pressed else "Good"
+        # pi.read returns 1 if HIGH, 0 if LOW.
+        # Assume HIGH means "Poor" air quality.
+        aq_val = pi.read(AIR_QUALITY_PIN)
+        data['air_quality'] = "Poor" if aq_val == 1 else "Good"
     except Exception as e:
         print("Air quality sensor error:", e)
         data['air_quality'] = None
 
-    # Read HC‑SR501 motion sensor
+    # Read HC‑SR501 motion sensor using pigpio:
     try:
-        data['motion'] = motion_sensor.motion_detected
+        motion_val = pi.read(MOTION_SENSOR_PIN)
+        data['motion'] = True if motion_val == 1 else False
     except Exception as e:
         print("Motion sensor error:", e)
         data['motion'] = None
@@ -56,22 +72,22 @@ def read_sensors():
     data['timestamp'] = time.time()
     return data
 
-# Global variable to hold the latest sensor data.
+# Global variable to cache the latest sensor data
 latest_data = {}
 
 def sensor_updater():
-    """Periodically update sensor data."""
+    """Update sensor data periodically."""
     global latest_data
     while True:
         latest_data = read_sensors()
         time.sleep(10)  # Update every 10 seconds
 
-# Start the sensor updater in a background thread.
+# Start the background thread to update sensor data
 threading.Thread(target=sensor_updater, daemon=True).start()
 
 @app.get("/sensors")
 def get_sensor_data():
-    """Return the latest sensor data as JSON."""
+    """HTTP endpoint to return the latest sensor data."""
     return latest_data
 
 if __name__ == "__main__":
