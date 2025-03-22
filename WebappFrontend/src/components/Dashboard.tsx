@@ -32,24 +32,24 @@ export default function Dashboard() {
     fetchDevices();
   }, [fetchDevices]);
 
-  // Poll the aggregator backend for live sensor data
+  // Poll the aggregator backend for live sensor data every 5 seconds
   useEffect(() => {
     const fetchLiveData = async () => {
       try {
         const res = await fetch("http://192.168.1.13:8000/sensors");
         const data = await res.json();
-        // Map key "air_quality" to "airQuality" if needed by your SensorData type
+        // Map "air_quality" from backend to "airQuality" in your SensorData type
         setLiveSensors({
           temperature: data.temperature,
           humidity: data.humidity,
-          airQuality: data.air_quality, 
+          airQuality: data.air_quality,
         });
       } catch (error) {
         console.error("Error fetching live sensor data", error);
       }
     };
     fetchLiveData();
-    const interval = setInterval(fetchLiveData, 5000); // Poll every 5 seconds
+    const interval = setInterval(fetchLiveData, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -247,7 +247,7 @@ export default function Dashboard() {
                   <X className="w-4 h-4" />
                 </motion.button>
                 <img
-                  src="http://raspberrypi.local:8000/video_feed"
+                  src="http://192.168.1.13:8000/video_feed"
                   alt="Live Camera Feed"
                   className="w-full rounded-lg"
                 />
