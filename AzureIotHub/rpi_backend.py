@@ -1,16 +1,16 @@
 # rpi_http_backend_pigpio.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import time, threading
 import board
 import adafruit_dht
 import cv2
-import base64
-import pigpio  # Use pigpio directly for digital I/O
+import pigpio
 
 app = FastAPI()
 
-# Enable CORS so that external clients (like your React dashboard) can access the API.
+# Enable CORS for external clients (like your React dashboard)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, restrict this to your trusted domains.
@@ -32,7 +32,7 @@ if not pi.connected:
 AIR_QUALITY_PIN = 18    # MQ‑135 digital output pin
 MOTION_SENSOR_PIN = 17  # HC‑SR501 motion sensor pin
 
-# Set up digital sensor pins with pull-down resistors (adjust if your hardware requires pull-up)
+# Set up digital sensor pins with pull-down resistors (adjust if your sensor requires pull-up)
 pi.set_mode(AIR_QUALITY_PIN, pigpio.INPUT)
 pi.set_pull_up_down(AIR_QUALITY_PIN, pigpio.PUD_DOWN)
 
@@ -53,8 +53,6 @@ def read_sensors():
 
     # Read MQ‑135 digital output using pigpio:
     try:
-        # pi.read returns 1 if HIGH, 0 if LOW.
-        # Assume HIGH means "Poor" air quality.
         aq_val = pi.read(AIR_QUALITY_PIN)
         data['air_quality'] = "Poor" if aq_val == 1 else "Good"
     except Exception as e:
@@ -76,7 +74,7 @@ def read_sensors():
 latest_data = {}
 
 def sensor_updater():
-    """Update sensor data periodically."""
+    """Periodically update sensor data."""
     global latest_data
     while True:
         latest_data = read_sensors()
@@ -87,8 +85,34 @@ threading.Thread(target=sensor_updater, daemon=True).start()
 
 @app.get("/sensors")
 def get_sensor_data():
-    """HTTP endpoint to return the latest sensor data."""
+    """Return the latest sensor data as JSON."""
     return latest_data
+
+# ----- Live Video Streaming Endpoint -----
+def generate_frames():
+    """Capture frames from the USB camera and yield them as a multipart MJPEG stream."""
+    cap = cv2.VideoCapture(0)
+    # Optionally set resolution to reduce data size
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        ret, buffer = cv2.imencode('.jpg', frame)
+        if not ret:
+            continue
+        frame_bytes = buffer.tobytes()
+        # Yield frame in multipart format
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        time.sleep(0.1)  # Adjust for desired frame rate
+    cap.release()
+
+@app.get("/video_feed")
+def video_feed():
+    """Return a streaming response with live MJPEG video."""
+    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 if __name__ == "__main__":
     import uvicorn
