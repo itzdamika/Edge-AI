@@ -1,47 +1,137 @@
-# pc_backend.py
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import threading, time, requests
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import List, Optional, Literal
+import json
+from datetime import datetime
+import uuid
+import cv2 # type: ignore
 
 app = FastAPI()
 
-# Enable CORS so your React dashboard can access this API
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict this in production to your dashboard domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# URL of your Raspberry Pi sensor backend.
-RPi_BACKEND_URL = "http://192.168.1.13:8000/sensors"  # Replace with your Pi's IP
+# Initialize camera
+camera = cv2.VideoCapture(0)
 
-# Global variable to store the latest sensor data.
-latest_sensor_data = {}
-
-def poll_rpi_backend():
-    global latest_sensor_data
+def generate_frames():
     while True:
-        try:
-            response = requests.get(RPi_BACKEND_URL, timeout=5)
-            if response.status_code == 200:
-                latest_sensor_data = response.json()
-                print("Updated sensor data:", latest_sensor_data)
-            else:
-                print("Error: Received status code", response.status_code)
-        except Exception as e:
-            print("Error polling RPi backend:", e)
-        time.sleep(5)  # Poll every 5 seconds
+        success, frame = camera.read()
+        if not success:
+            break
+        else:
+            ret, buffer = cv2.imencode('.jpg', frame)
+            frame = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-# Start the polling thread
-threading.Thread(target=poll_rpi_backend, daemon=True).start()
+@app.get("/video_feed")
+async def video_feed():
+    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
-@app.get("/latest")
-def get_latest_data():
-    """Return the latest sensor data from the Raspberry Pi."""
-    return latest_sensor_data
+# Data models
+class User(BaseModel):
+    id: str
+    username: str
+    password: str
+    role: Literal["admin", "guest"]
+
+class Device(BaseModel):
+    id: str
+    name: str
+    type: Literal["ac", "fan", "light"]
+    status: bool
+    temperature: Optional[int] = None
+    speed: Optional[int] = None
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+# Load users from JSON file
+def load_users():
+    try:
+        with open("users.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # Create default users if file doesn't exist
+        default_users = [
+            {
+                "id": str(uuid.uuid4()),
+                "username": "admin",
+                "password": "admin123",
+                "role": "admin"
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "username": "guest",
+                "password": "guest123",
+                "role": "guest"
+            }
+        ]
+        with open("users.json", "w") as f:
+            json.dump(default_users, f)
+        return default_users
+
+# Initialize devices
+devices = [
+    {
+        "id": str(uuid.uuid4()),
+        "name": "Living Room AC",
+        "type": "ac",
+        "status": False,
+        "temperature": 24
+    },
+    {
+        "id": str(uuid.uuid4()),
+        "name": "Bedroom Fan",
+        "type": "fan",
+        "status": False,
+        "speed": 1
+    },
+    {
+        "id": str(uuid.uuid4()),
+        "name": "Kitchen Light",
+        "type": "light",
+        "status": False
+    }
+]
+
+@app.post("/login")
+async def login(request: LoginRequest):
+    users = load_users()
+    user = next(
+        (user for user in users if user["username"] == request.username and user["password"] == request.password),
+        None
+    )
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return user
+
+@app.get("/devices")
+async def get_devices():
+    return devices
+
+@app.put("/devices/{device_id}")
+async def update_device(device_id: str, device: Device):
+    device_index = next(
+        (index for (index, d) in enumerate(devices) if d["id"] == device_id),
+        None
+    )
+    if device_index is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    devices[device_index].update(device.dict(exclude_unset=True))
+    return devices[device_index]
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

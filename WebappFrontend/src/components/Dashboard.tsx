@@ -21,21 +21,37 @@ import {
 import toast from 'react-hot-toast';
 import type { SensorData } from '../types';
 
-const sensorData: SensorData = {
-  temperature: 23,
-  humidity: 45,
-  airQuality: 92,
-};
-
 export default function Dashboard() {
   const { devices, fetchDevices, updateDevice } = useDeviceStore();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const [showCamera, setShowCamera] = useState(false);
+  const [liveSensors, setLiveSensors] = useState<SensorData | null>(null);
 
   useEffect(() => {
     fetchDevices();
   }, [fetchDevices]);
+
+  // Poll the aggregator backend for live sensor data
+  useEffect(() => {
+    const fetchLiveData = async () => {
+      try {
+        const res = await fetch("http://192.168.1.13:8000/sensors");
+        const data = await res.json();
+        // Map key "air_quality" to "airQuality" if needed by your SensorData type
+        setLiveSensors({
+          temperature: data.temperature,
+          humidity: data.humidity,
+          airQuality: data.air_quality, 
+        });
+      } catch (error) {
+        console.error("Error fetching live sensor data", error);
+      }
+    };
+    fetchLiveData();
+    const interval = setInterval(fetchLiveData, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
 
   const handleDeviceToggle = async (deviceId: string, currentStatus: boolean) => {
     if (user?.role !== 'admin') {
@@ -49,6 +65,13 @@ export default function Dashboard() {
     } catch (error) {
       toast.error('Failed to update device');
     }
+  };
+
+  // Use liveSensors if available, otherwise fallback to default values
+  const sensorValues = liveSensors || {
+    temperature: 0,
+    humidity: 0,
+    airQuality: 0
   };
 
   return (
@@ -79,9 +102,9 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {[
-            { icon: Thermometer, label: 'Room Temperature', value: `${sensorData.temperature}°C`, color: 'text-orange-400' },
-            { icon: Droplets, label: 'Humidity', value: `${sensorData.humidity}%`, color: 'text-blue-400' },
-            { icon: Wind, label: 'Air Quality', value: `${sensorData.airQuality}%`, color: 'text-purple-400' }
+            { icon: Thermometer, label: 'Room Temperature', value: `${sensorValues.temperature}°C`, color: 'text-orange-400' },
+            { icon: Droplets, label: 'Humidity', value: `${sensorValues.humidity}%`, color: 'text-blue-400' },
+            { icon: Wind, label: 'Air Quality', value: sensorValues.airQuality, color: 'text-purple-400' }
           ].map((sensor, index) => (
             <motion.div
               key={index}

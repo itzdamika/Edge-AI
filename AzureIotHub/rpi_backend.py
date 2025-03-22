@@ -10,7 +10,7 @@ import pigpio
 
 app = FastAPI()
 
-# Enable CORS for external clients (like your React dashboard)
+# Enable CORS for external clients
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, restrict this to your trusted domains.
