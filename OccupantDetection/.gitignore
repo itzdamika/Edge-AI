@@ -1,8 +1,0 @@
-input/
-split_dataset/
-
-# Ignore virtual environments
-venv/
-env/
-
-yolov8n.pt

@@ -1,7 +1,7 @@
 task: detect
 mode: train
 model: yolov8n.pt
-data: Occupant Detection/data.yaml
+data: ../OccupantDetection/data.yaml
 epochs: 100
 time: null
 patience: 100
@@ -103,4 +103,4 @@ erasing: 0.4
 crop_fraction: 1.0
 cfg: null
 tracker: botsort.yaml
-save_dir: runs\detect\train
+save_dir: c:\Users\User\Desktop\Edge-AI\runs\detect\train
