@@ -4,16 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import time, threading
 import board
 import adafruit_dht
-import cv2
-import base64
 from gpiozero import MotionSensor, Button
 
 app = FastAPI()
 
-# --- Enable CORS so that your React dashboard (running on another host/port) can access the API.
+# Enable CORS so that your React dashboard (or other clients) can access the API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this to your dashboard domain.
+    allow_origins=["*"],  # In production, restrict this to your dashboard's domain.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,24 +27,10 @@ air_quality_sensor = Button(18)
 # HC‑SR501 Motion Sensor (wired to GPIO17)
 motion_sensor = MotionSensor(17)
 
-def get_camera_image():
-    """Capture one frame from the USB webcam, resize to 320x240, encode as JPEG, and return a base64 string."""
-    cap = cv2.VideoCapture(0)  # Use default USB webcam
-    ret, frame = cap.read()
-    cap.release()
-    if not ret:
-        return None
-    # Resize for smaller payload
-    frame = cv2.resize(frame, (320, 240))
-    ret, buffer = cv2.imencode('.jpg', frame)
-    if not ret:
-        return None
-    return base64.b64encode(buffer).decode('utf-8')
-
 def read_sensors():
     """Read sensor data and return as a dictionary."""
     data = {}
-    # Read DHT22 sensor
+    # Read DHT22 sensor data (Temperature & Humidity)
     try:
         data['temperature'] = dhtDevice.temperature
         data['humidity'] = dhtDevice.humidity
@@ -55,7 +39,7 @@ def read_sensors():
         data['temperature'] = None
         data['humidity'] = None
 
-    # Read MQ‑135 digital output: assume HIGH (pressed) means "Poor"
+    # Read MQ‑135 digital output: assume HIGH means "Poor" air quality
     try:
         data['air_quality'] = "Poor" if air_quality_sensor.is_pressed else "Good"
     except Exception as e:
@@ -68,13 +52,6 @@ def read_sensors():
     except Exception as e:
         print("Motion sensor error:", e)
         data['motion'] = None
-
-    # Capture camera image
-    try:
-        data['camera_image'] = get_camera_image()
-    except Exception as e:
-        print("Camera error:", e)
-        data['camera_image'] = None
 
     data['timestamp'] = time.time()
     return data
@@ -89,7 +66,7 @@ def sensor_updater():
         latest_data = read_sensors()
         time.sleep(10)  # Update every 10 seconds
 
-# Start background sensor updater
+# Start the sensor updater in a background thread.
 threading.Thread(target=sensor_updater, daemon=True).start()
 
 @app.get("/sensors")

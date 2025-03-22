@@ -1,45 +1,47 @@
-# cloud_backend.py
+# pc_backend.py
 from fastapi import FastAPI
-import threading, json
-import paho.mqtt.client as mqtt
+from fastapi.middleware.cors import CORSMiddleware
+import threading, time, requests
 
 app = FastAPI()
 
-# Global variable to hold the latest sensor data.
+# Enable CORS so your React dashboard can access this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Restrict this in production to your dashboard domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# URL of your Raspberry Pi sensor backend.
+RPi_BACKEND_URL = "http://192.168.1.13:8000/sensors"  # Replace with your Pi's IP
+
+# Global variable to store the latest sensor data.
 latest_sensor_data = {}
 
-MQTT_BROKER = "192.168.1.13"  # Use your broker address; adjust if not running on the same machine.
-MQTT_PORT = 1883
-MQTT_TOPIC = "sensors/data"
-
-def on_connect(client, userdata, flags, rc):
-    print("Connected to MQTT broker with result code", rc)
-    client.subscribe(MQTT_TOPIC)
-
-def on_message(client, userdata, msg):
+def poll_rpi_backend():
     global latest_sensor_data
-    try:
-        payload = msg.payload.decode("utf-8")
-        data = json.loads(payload)
-        latest_sensor_data = data
-        print("Received sensor data:", data)
-    except Exception as e:
-        print("Error processing MQTT message:", e)
+    while True:
+        try:
+            response = requests.get(RPi_BACKEND_URL, timeout=5)
+            if response.status_code == 200:
+                latest_sensor_data = response.json()
+                print("Updated sensor data:", latest_sensor_data)
+            else:
+                print("Error: Received status code", response.status_code)
+        except Exception as e:
+            print("Error polling RPi backend:", e)
+        time.sleep(5)  # Poll every 5 seconds
 
-mqtt_client = mqtt.Client()
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-
-def mqtt_loop():
-    mqtt_client.loop_forever()
-
-threading.Thread(target=mqtt_loop, daemon=True).start()
+# Start the polling thread
+threading.Thread(target=poll_rpi_backend, daemon=True).start()
 
 @app.get("/latest")
 def get_latest_data():
+    """Return the latest sensor data from the Raspberry Pi."""
     return latest_sensor_data
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=5000)
