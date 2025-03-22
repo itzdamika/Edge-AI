@@ -13,14 +13,14 @@ app = FastAPI()
 # Enable CORS for external clients (like your React dashboard)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to your trusted domains.
+    allow_origins=["*"],  # In production, restrict this to your trusted domains.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ----- Sensor Initialization -----
-# DHT22 sensor on GPIO27
+# Initialize DHT22 sensor on GPIO27
 dhtDevice = adafruit_dht.DHT22(board.D27)
 
 # Initialize pigpio (ensure pigpiod is running)
@@ -29,8 +29,8 @@ if not pi.connected:
     raise SystemExit("Could not connect to pigpio daemon. Start it with 'sudo systemctl start pigpiod'.")
 
 # Digital sensor pins (MQ‑135 and HC‑SR501)
-AIR_QUALITY_PIN = 18    # MQ‑135 digital output
-MOTION_SENSOR_PIN = 17  # HC‑SR501 motion sensor
+AIR_QUALITY_PIN = 18    # MQ‑135 digital output pin
+MOTION_SENSOR_PIN = 17  # HC‑SR501 motion sensor pin
 
 # Set up digital sensor pins with pull-down resistors
 pi.set_mode(AIR_QUALITY_PIN, pigpio.INPUT)
@@ -40,12 +40,12 @@ pi.set_mode(MOTION_SENSOR_PIN, pigpio.INPUT)
 pi.set_pull_up_down(MOTION_SENSOR_PIN, pigpio.PUD_DOWN)
 
 # ----- Light Control Initialization -----
-# Define light control pins
+# Define light control pins for the three lights
 KITCHEN_LIGHT_PIN = 22
 LIVINGROOM_AC_PIN = 23
 BEDROOM_FAN_PIN = 24
 
-# Configure light control pins as outputs and set to off (0)
+# Configure light control pins as outputs and initialize them to off (0)
 for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
@@ -81,7 +81,7 @@ def read_sensors():
     data['timestamp'] = time.time()
     return data
 
-# Global variable to cache latest sensor data
+# Global variable to cache the latest sensor data.
 latest_data = {}
 
 def sensor_updater():
@@ -100,7 +100,7 @@ def get_sensor_data():
 
 # ----- Live Video Streaming Endpoint -----
 def generate_frames():
-    """Continuously capture frames from the USB camera and yield as an MJPEG stream."""
+    """Continuously capture frames from the USB camera and yield them as an MJPEG stream."""
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
@@ -124,11 +124,14 @@ def video_feed():
 
 # ----- Light Control Endpoints -----
 def set_light_state(pin: int, state: str):
-    """Set the specified GPIO output for a light."""
+    """Set the specified GPIO output for a light with debug logging."""
+    print(f"[DEBUG] Attempting to set pin {pin} to {state}")
     if state.lower() == "on":
         pi.write(pin, 1)
+        print(f"[DEBUG] Pin {pin} set to HIGH (ON)")
     elif state.lower() == "off":
         pi.write(pin, 0)
+        print(f"[DEBUG] Pin {pin} set to LOW (OFF)")
     else:
         raise ValueError("Invalid state; use 'on' or 'off'.")
 
