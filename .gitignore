@@ -1,5 +1,7 @@
 input/
 split_dataset/
+/runs
+/OccupentDetection/runs
 
 # Ignore virtual environments
 /venv/
