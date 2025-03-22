@@ -1,43 +1,42 @@
-# rpi_backend.py
+# rpi_http_backend.py
 from fastapi import FastAPI
-import time, json, threading
+from fastapi.middleware.cors import CORSMiddleware
+import time, threading
 import board
 import adafruit_dht
 import cv2
 import base64
-import paho.mqtt.client as mqtt
-import pigpio  # Using pigpio for digital I/O
+from gpiozero import MotionSensor, Button
 
 app = FastAPI()
 
-# ----- Initialize pigpio and check connection -----
-pi = pigpio.pi()
-if not pi.connected:
-    print("Error: Could not connect to pigpio daemon.")
-    exit()
+# --- Enable CORS so that your React dashboard (running on another host/port) can access the API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict this to your dashboard domain.
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ----- Sensor Initialization -----
-# Use GPIO27 for DHT22 (avoid conflicts on GPIO4)
+# DHT22 on GPIO27 (avoid conflicts on GPIO4)
 dhtDevice = adafruit_dht.DHT22(board.D27)
 
-# Define pins for digital sensors
-AIR_QUALITY_PIN = 18   # MQ‑135 digital output pin
-MOTION_SENSOR_PIN = 17  # HC‑SR501 motion sensor pin
+# MQ‑135 digital output (assumed wired to GPIO18)
+air_quality_sensor = Button(18)
 
-# Configure these pins as inputs with a pull-down resistor.
-pi.set_mode(AIR_QUALITY_PIN, pigpio.INPUT)
-pi.set_pull_up_down(AIR_QUALITY_PIN, pigpio.PUD_DOWN)
-pi.set_mode(MOTION_SENSOR_PIN, pigpio.INPUT)
-pi.set_pull_up_down(MOTION_SENSOR_PIN, pigpio.PUD_DOWN)
+# HC‑SR501 Motion Sensor (wired to GPIO17)
+motion_sensor = MotionSensor(17)
 
 def get_camera_image():
-    """Capture one frame from the USB webcam, resize, encode as JPEG, and return as a base64 string."""
-    cap = cv2.VideoCapture(0)  # default USB camera
+    """Capture one frame from the USB webcam, resize to 320x240, encode as JPEG, and return a base64 string."""
+    cap = cv2.VideoCapture(0)  # Use default USB webcam
     ret, frame = cap.read()
     cap.release()
     if not ret:
         return None
-    # Resize for smaller data size (320x240)
+    # Resize for smaller payload
     frame = cv2.resize(frame, (320, 240))
     ret, buffer = cv2.imencode('.jpg', frame)
     if not ret:
@@ -45,9 +44,9 @@ def get_camera_image():
     return base64.b64encode(buffer).decode('utf-8')
 
 def read_sensors():
-    """Collect sensor data into a dictionary."""
+    """Read sensor data and return as a dictionary."""
     data = {}
-    # Read temperature and humidity from DHT22
+    # Read DHT22 sensor
     try:
         data['temperature'] = dhtDevice.temperature
         data['humidity'] = dhtDevice.humidity
@@ -56,24 +55,21 @@ def read_sensors():
         data['temperature'] = None
         data['humidity'] = None
 
-    # Read air quality from MQ‑135 using pigpio
+    # Read MQ‑135 digital output: assume HIGH (pressed) means "Poor"
     try:
-        air_quality_val = pi.read(AIR_QUALITY_PIN)
-        # Assume that a HIGH (1) means "Poor" air quality, LOW (0) means "Good"
-        data['air_quality'] = "Poor" if air_quality_val == 1 else "Good"
+        data['air_quality'] = "Poor" if air_quality_sensor.is_pressed else "Good"
     except Exception as e:
         print("Air quality sensor error:", e)
         data['air_quality'] = None
 
-    # Read motion sensor state from HC‑SR501 using pigpio
+    # Read HC‑SR501 motion sensor
     try:
-        motion_val = pi.read(MOTION_SENSOR_PIN)
-        data['motion'] = True if motion_val == 1 else False
+        data['motion'] = motion_sensor.motion_detected
     except Exception as e:
         print("Motion sensor error:", e)
         data['motion'] = None
 
-    # Read camera image
+    # Capture camera image
     try:
         data['camera_image'] = get_camera_image()
     except Exception as e:
@@ -83,30 +79,23 @@ def read_sensors():
     data['timestamp'] = time.time()
     return data
 
-# ----- MQTT Publisher Setup -----
-MQTT_BROKER = "localhost"  # Use your broker address here (or the Pi's IP if needed)
-MQTT_PORT = 1883
-MQTT_TOPIC = "sensors/data"
+# Global variable to hold the latest sensor data.
+latest_data = {}
 
-mqtt_client = mqtt.Client()
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-
-def sensor_publisher():
-    """Read sensors periodically and publish the data via MQTT."""
+def sensor_updater():
+    """Periodically update sensor data."""
+    global latest_data
     while True:
-        sensor_data = read_sensors()
-        payload = json.dumps(sensor_data)
-        mqtt_client.publish(MQTT_TOPIC, payload)
-        print("Published sensor data:", payload)
-        time.sleep(10)  # Publish every 10 seconds
+        latest_data = read_sensors()
+        time.sleep(10)  # Update every 10 seconds
 
-# Start the publisher in a background thread.
-threading.Thread(target=sensor_publisher, daemon=True).start()
+# Start background sensor updater
+threading.Thread(target=sensor_updater, daemon=True).start()
 
-# Optional: Expose an HTTP endpoint to get sensor data directly.
 @app.get("/sensors")
 def get_sensor_data():
-    return read_sensors()
+    """Return the latest sensor data as JSON."""
+    return latest_data
 
 if __name__ == "__main__":
     import uvicorn
