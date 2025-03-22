@@ -78,7 +78,7 @@ def sensor_updater():
     global latest_data
     while True:
         latest_data = read_sensors()
-        time.sleep(10)  # Update every 10 seconds
+        time.sleep(2)  # Update every 10 seconds
 
 # Start the background thread to update sensor data
 threading.Thread(target=sensor_updater, daemon=True).start()
