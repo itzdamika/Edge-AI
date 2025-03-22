@@ -1,3 +1,8 @@
+# Use pigpio's pin factory so we can run without sudo
+from gpiozero import Device
+from gpiozero.pins.pigpio import PiGPIOFactory
+Device.pin_factory = PiGPIOFactory()
+
 import time
 import board
 import adafruit_dht
@@ -16,8 +21,7 @@ dhtDevice = adafruit_dht.DHT22(board.D4)
 # ---------------------------
 # 2. MQ‑135 Sensor (Air Quality) using Digital Output
 # ---------------------------
-# For a digital sensor output, we use a Button from gpiozero.
-# Connect the MQ‑135 module's digital output (DO) to GPIO18.
+# Assumes your MQ‑135 module provides a digital output (DO) that you wire to GPIO18.
 air_quality_sensor = Button(18)
 
 # ---------------------------
@@ -34,7 +38,7 @@ client = IoTHubDeviceClient.create_from_connection_string(CONNECTION_STRING)
 def get_sensor_data():
     data = {}
 
-    # Read temperature and humidity from DHT22 sensor
+    # DHT22: Temperature & Humidity
     try:
         temperature = dhtDevice.temperature
         humidity = dhtDevice.humidity
@@ -45,7 +49,7 @@ def get_sensor_data():
         data['temperature'] = None
         data['humidity'] = None
 
-    # Read air quality from MQ‑135 digital output
+    # MQ‑135: Air Quality (Digital Output)
     try:
         # If the digital output is active (button "pressed"), assume air quality is "Poor".
         if air_quality_sensor.is_pressed:
@@ -56,7 +60,7 @@ def get_sensor_data():
         print("Air quality sensor error:", e)
         data['air_quality'] = None
 
-    # Read motion detection from HC‑SR501 sensor
+    # HC‑SR501: Motion
     try:
         data['motion'] = motion_sensor.motion_detected
     except Exception as e:
