@@ -12,18 +12,19 @@ import cv2
 import base64
 
 # Replace with your Azure IoT Hub device connection string
-CONNECTION_STRING = "HostName=edgeAI-hub.azure-devices.net;DeviceId=edge-voice-test-device;SharedAccessKey=INEQ7VrEqAEyrUW3JYTXeFGgprHut4kCLqq7RHTwFGE="
+CONNECTION_STRING = "HostName=edgeAI-hub.azure-devices.net;DeviceId=edge-voice-test-device;SharedAccessKey=YOUR_KEY_HERE"
 
 # ---------------------------
 # 1. DHT22 Sensor (Temperature & Humidity)
 # ---------------------------
-# Connected to GPIO4 (using board.D4)
-dhtDevice = adafruit_dht.DHT22(board.D4)
+# Updated: Connected to GPIO27 (using board.D27) instead of GPIO4.
+# Update your wiring: connect DHT22 data line to GPIO27.
+dhtDevice = adafruit_dht.DHT22(board.D27)
 
 # ---------------------------
 # 2. MQ‑135 Sensor (Air Quality) using Digital Output
 # ---------------------------
-# Assumes your MQ‑135 module provides a digital output (DO) wired to GPIO18.
+# Assumes your MQ‑135 module provides a digital output (DO) that you wire to GPIO18.
 air_quality_sensor = Button(18)
 
 # ---------------------------
@@ -33,26 +34,23 @@ air_quality_sensor = Button(18)
 motion_sensor = MotionSensor(17)
 
 # ---------------------------
-# 4. USB Web Camera (via OpenCV)
+# 4. USB Webcam (via OpenCV)
 # ---------------------------
 def get_camera_image():
-    """Capture one frame from the USB webcam, compress as JPEG, and return as a base64 string."""
-    cap = cv2.VideoCapture(0)  # '0' is usually the default camera
+    """Capture one frame from the USB webcam, resize, encode as JPEG and return a base64 string."""
+    cap = cv2.VideoCapture(0)  # Open default camera
     ret, frame = cap.read()
     cap.release()
     if not ret:
-        print("Failed to capture camera image")
+        print("Failed to capture image")
         return None
-    # Optionally, resize the frame to reduce message size (e.g., to 320x240)
+    # Optionally resize (e.g., 320x240) to reduce message size
     frame = cv2.resize(frame, (320, 240))
-    # Encode frame as JPEG
     ret, buffer = cv2.imencode('.jpg', frame)
     if not ret:
         print("Failed to encode image")
         return None
-    # Convert to base64 string
-    jpg_as_text = base64.b64encode(buffer).decode('utf-8')
-    return jpg_as_text
+    return base64.b64encode(buffer).decode('utf-8')
 
 # ---------------------------
 # Azure IoT Hub Client Initialization
@@ -75,7 +73,6 @@ def get_sensor_data():
 
     # MQ‑135: Air Quality (Digital Output)
     try:
-        # If the digital output is active, assume air quality is "Poor"
         if air_quality_sensor.is_pressed:
             data['air_quality'] = "Poor"
         else:
@@ -91,10 +88,10 @@ def get_sensor_data():
         print("Motion sensor error:", e)
         data['motion'] = None
 
-    # USB Webcam: Capture one image snapshot
+    # USB Webcam: Capture snapshot
     try:
         camera_image = get_camera_image()
-        data['camera_image'] = camera_image  # This is a base64 string (can be large)
+        data['camera_image'] = camera_image
     except Exception as e:
         print("Camera error:", e)
         data['camera_image'] = None
@@ -103,7 +100,6 @@ def get_sensor_data():
 
 def send_data_to_azure(data):
     try:
-        # Convert data dict to string; note that large images may make the message big
         message = Message(str(data))
         client.send_message(message)
         print("Data sent to Azure IoT Hub:", data)
