@@ -1,137 +1,45 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import List, Optional, Literal
-import json
-from datetime import datetime
-import uuid
-import cv2 # type: ignore
+# cloud_backend.py
+from fastapi import FastAPI
+import threading, json
+import paho.mqtt.client as mqtt
 
 app = FastAPI()
 
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Global variable to hold the latest sensor data.
+latest_sensor_data = {}
 
-# Initialize camera
-camera = cv2.VideoCapture(0)
+MQTT_BROKER = "192.168.1.13"  # Use your broker address; adjust if not running on the same machine.
+MQTT_PORT = 1883
+MQTT_TOPIC = "sensors/data"
 
-def generate_frames():
-    while True:
-        success, frame = camera.read()
-        if not success:
-            break
-        else:
-            ret, buffer = cv2.imencode('.jpg', frame)
-            frame = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+def on_connect(client, userdata, flags, rc):
+    print("Connected to MQTT broker with result code", rc)
+    client.subscribe(MQTT_TOPIC)
 
-@app.get("/video_feed")
-async def video_feed():
-    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
-
-# Data models
-class User(BaseModel):
-    id: str
-    username: str
-    password: str
-    role: Literal["admin", "guest"]
-
-class Device(BaseModel):
-    id: str
-    name: str
-    type: Literal["ac", "fan", "light"]
-    status: bool
-    temperature: Optional[int] = None
-    speed: Optional[int] = None
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-# Load users from JSON file
-def load_users():
+def on_message(client, userdata, msg):
+    global latest_sensor_data
     try:
-        with open("users.json", "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        # Create default users if file doesn't exist
-        default_users = [
-            {
-                "id": str(uuid.uuid4()),
-                "username": "admin",
-                "password": "admin123",
-                "role": "admin"
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "username": "guest",
-                "password": "guest123",
-                "role": "guest"
-            }
-        ]
-        with open("users.json", "w") as f:
-            json.dump(default_users, f)
-        return default_users
+        payload = msg.payload.decode("utf-8")
+        data = json.loads(payload)
+        latest_sensor_data = data
+        print("Received sensor data:", data)
+    except Exception as e:
+        print("Error processing MQTT message:", e)
 
-# Initialize devices
-devices = [
-    {
-        "id": str(uuid.uuid4()),
-        "name": "Living Room AC",
-        "type": "ac",
-        "status": False,
-        "temperature": 24
-    },
-    {
-        "id": str(uuid.uuid4()),
-        "name": "Bedroom Fan",
-        "type": "fan",
-        "status": False,
-        "speed": 1
-    },
-    {
-        "id": str(uuid.uuid4()),
-        "name": "Kitchen Light",
-        "type": "light",
-        "status": False
-    }
-]
+mqtt_client = mqtt.Client()
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
-@app.post("/login")
-async def login(request: LoginRequest):
-    users = load_users()
-    user = next(
-        (user for user in users if user["username"] == request.username and user["password"] == request.password),
-        None
-    )
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return user
+def mqtt_loop():
+    mqtt_client.loop_forever()
 
-@app.get("/devices")
-async def get_devices():
-    return devices
+threading.Thread(target=mqtt_loop, daemon=True).start()
 
-@app.put("/devices/{device_id}")
-async def update_device(device_id: str, device: Device):
-    device_index = next(
-        (index for (index, d) in enumerate(devices) if d["id"] == device_id),
-        None
-    )
-    if device_index is None:
-        raise HTTPException(status_code=404, detail="Device not found")
-    
-    devices[device_index].update(device.dict(exclude_unset=True))
-    return devices[device_index]
+@app.get("/latest")
+def get_latest_data():
+    return latest_sensor_data
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
