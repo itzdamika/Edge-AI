@@ -1,27 +1,47 @@
-from azure.iot.device import IoTHubDeviceClient, Message
 import time
+import Adafruit_DHT
+import random
+from azure.iot.device import IoTHubDeviceClient, Message
 
-CONNECTION_STRING = "HostName=edgeAI-hub.azure-devices.net;DeviceId=edge-voice-test-device;SharedAccessKey=F+e7lE4RkFXxdwUqJvK11aHeYUhLf2eeEw1fhXw3UBQ="
+# Replace with your IoT Hub device connection string
+CONNECTION_STRING = "HostName=edgeAI-hub.azure-devices.net;DeviceId=edge-voice-test-device;SharedAccessKey=INEQ7VrEqAEyrUW3JYTXeFGgprHut4kCLqq7RHTwFGE="
 
-def iothub_client_init():
-    client = IoTHubDeviceClient.create_from_connection_string(CONNECTION_STRING)
-    client.connect()
-    return client
+# Define sensor type and the GPIO pin where the sensor's data pin is connected
+dht_sensor = Adafruit_DHT.DHT22
+dht_pin = 4  # Using GPIO4
 
-def send_test_message(client):
-    try:
-        message = Message("Test message from device")
-        print("Sending test message to Azure IoT Hub...")
-        client.send_message(message=message)
-        print("Message successfully sent")
-    except Exception as e:
-        print(f"Error: {e}")
+# Initialize Azure IoT client
+client = IoTHubDeviceClient.create_from_connection_string(CONNECTION_STRING)
 
-if __name__ == '__main__':
-    client = iothub_client_init()
+def get_sensor_data():
+    # Force the platform to 'raspberrypi' to bypass auto-detection issues
+    humidity, temperature = Adafruit_DHT.read_retry(dht_sensor, dht_pin, platform='raspberrypi')
+    if humidity is not None and temperature is not None:
+        # Simulate additional sensor data
+        air_quality = random.uniform(20.0, 50.0)  # Example simulated value
+        motion_detected = random.choice([True, False])  # Simulated motion detection
+        return {
+            'temperature': temperature,
+            'humidity': humidity,
+            'air_quality': air_quality,
+            'motion': motion_detected
+        }
+    else:
+        print("Failed to retrieve data from sensor")
+        return None
+
+def send_data_to_azure(data):
+    if data:
+        # Convert the data dictionary to a string message
+        message = Message(str(data))
+        client.send_message(message)
+        print("Data sent to Azure IoT Hub")
+
+def main():
     while True:
-        iothub_message = Message("Hello from Raspberry Pi - Test Message")
-        print(f"Sending message: {iothub_message}")
-        client.send_message(iothub_message)
-        print("Message successfully sent!")
-        time.sleep(5)
+        data = get_sensor_data()
+        send_data_to_azure(data)
+        time.sleep(10)  # Wait 10 seconds before the next reading
+
+if __name__ == "__main__":
+    main()
