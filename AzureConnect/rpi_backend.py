@@ -10,10 +10,10 @@ import pigpio
 
 app = FastAPI()
 
-# Enable CORS for external clients
+# Enable CORS for external clients (like your React dashboard)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to your trusted domains.
+    allow_origins=["*"],  # In production, restrict this to your trusted domains.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,13 +50,12 @@ for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
 
-# Set to True if your relay module is active low (i.e., LOW turns the light on)
+# Set ACTIVE_LOW to True if your relay module is active low.
 ACTIVE_LOW = False
 
 def read_sensors():
     """Read sensor data and return it as a dictionary."""
     data = {}
-    # DHT22: Temperature & Humidity
     try:
         data['temperature'] = dhtDevice.temperature
         data['humidity'] = dhtDevice.humidity
@@ -65,7 +64,6 @@ def read_sensors():
         data['temperature'] = None
         data['humidity'] = None
 
-    # MQ‑135: Digital output; assume HIGH means "Poor" air quality
     try:
         aq_val = pi.read(AIR_QUALITY_PIN)
         data['air_quality'] = "Poor" if aq_val == 1 else "Good"
@@ -73,7 +71,6 @@ def read_sensors():
         print("Air quality sensor error:", e)
         data['air_quality'] = None
 
-    # HC‑SR501: Motion sensor
     try:
         motion_val = pi.read(MOTION_SENSOR_PIN)
         data['motion'] = True if motion_val == 1 else False
@@ -88,22 +85,18 @@ def read_sensors():
 latest_data = {}
 
 def sensor_updater():
-    """Periodically update sensor data."""
     global latest_data
     while True:
         latest_data = read_sensors()
-        time.sleep(10)  # Update every 10 seconds
+        time.sleep(10)
 
 threading.Thread(target=sensor_updater, daemon=True).start()
 
 @app.get("/sensors")
 def get_sensor_data():
-    """Return the latest sensor data as JSON."""
     return latest_data
 
-# ----- Live Video Streaming Endpoint -----
 def generate_frames():
-    """Continuously capture frames from the USB camera and yield as an MJPEG stream."""
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
@@ -117,18 +110,15 @@ def generate_frames():
         frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        time.sleep(0.1)  # Adjust frame rate as desired
+        time.sleep(0.1)
     cap.release()
 
 @app.get("/video_feed")
 def video_feed():
-    """Stream a live MJPEG video from the USB camera."""
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
-# ----- Light Control Endpoints -----
 def set_light_state(pin: int, state: str):
-    """Set the specified GPIO output for a light, with debug logging."""
-    print(f"[DEBUG] Setting pin {pin} to state '{state}'")
+    print(f"[DEBUG] Attempting to set pin {pin} to state '{state}'")
     if state.lower() == "on":
         value = 0 if ACTIVE_LOW else 1
     elif state.lower() == "off":
