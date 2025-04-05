@@ -14,6 +14,10 @@ input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 input_shape = input_details[0]['shape'][1:3] 
 
+print("Output details:")
+for i, detail in enumerate(output_details):
+    print(f"Output{i}:{detail}")
+
 cap = cv2.VideoCapture(0)
 
 while True:
