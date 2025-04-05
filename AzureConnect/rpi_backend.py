@@ -257,7 +257,7 @@ def control_kitchen_light(state: str = Query(..., description="Light state: 'on'
         set_light_state(KITCHEN_LIGHT_PIN, state)
         kitchen_state = state.lower()
         update_display()  # (ADDED) Show new states
-        log_system(f"Kitchen Light turned {kitchen_state.upper()}")  # (ADDED)
+        log_system(f"Light turned {kitchen_state.upper()}")  # (ADDED)
         return {"light": "kitchen", "state": kitchen_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -269,7 +269,7 @@ def control_livingroom_ac(state: str = Query(..., description="Light state: 'on'
         set_light_state(LIVINGROOM_AC_PIN, state)
         livingroom_state = state.lower()
         update_display()  # (ADDED) Show new states
-        log_system(f"Living Room AC turned {livingroom_state.upper()}")  # (ADDED)
+        log_system(f"AC turned {livingroom_state.upper()}")  # (ADDED)
         return {"light": "livingroom_ac", "state": livingroom_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -281,7 +281,7 @@ def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' o
         set_light_state(BEDROOM_FAN_PIN, state)
         bedroom_state = state.lower()
         update_display()  # (ADDED) Show new states
-        log_system(f"Bedroom Fan turned {bedroom_state.upper()}")  # (ADDED)
+        log_system(f"Fan turned {bedroom_state.upper()}")  # (ADDED)
         return {"light": "bedroom_fan", "state": bedroom_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -308,22 +308,29 @@ You are a SmartAura Smart Home Assistant. Keep answers short and direct.
 """
 
 command_prompt = """
-We only have three devices:
-1) Kitchen Light => 'kitchen-on'/'kitchen-off'
-2) Living Room AC => 'ac-on'/'ac-off'
-3) Bedroom Fan => 'fan-on'/'fan-off'
+You are responsible for controlling three devices in the house:
 
-Examples:
-- 'Lights on' => 'kitchen-on'
-- 'Turn on the lights' => 'kitchen-on'
-- 'Lights off' => 'kitchen-off'
-- 'Turn off the lights' => 'kitchen-off'
-- 'Turn on the AC' => 'ac-on'
-- 'Turn off the AC' => 'ac-off'
-- 'Turn on the fan' => 'fan-on'
-- 'Turn off the fan' => 'fan-off'
+1) Kitchen Light: 'kitchen-on' / 'kitchen-off'
+2) Living Room AC: 'ac-on' / 'ac-off'
+3) Bedroom Fan: 'fan-on' / 'fan-off'
 
-If no match, respond with 'error' only.
+**Guidelines:**
+- Respond only with one of the following actions: kitchen-on, kitchen-off, ac-on, ac-off, fan-on, or fan-off.
+- If the request does not match any valid action, respond with **"error"**.
+
+**Examples of valid commands:**
+- "Lights on" => 'kitchen-on'
+- "Turn on the lights" => 'kitchen-on'
+- "Lights off" => 'kitchen-off'
+- "Turn off the lights" => 'kitchen-off'
+- "Turn on the AC" => 'ac-on'
+- "Turn off the AC" => 'ac-off'
+- "Turn on the fan" => 'fan-on'
+- "Turn off the fan" => 'fan-off'
+
+**Important Notes:**
+- No additional text or explanation is required. Only respond with the action corresponding to the command or "error" if there is no match. Only just the text and nothing else
+
 """
 
 async def _create_completion(messages: list, **kwargs) -> str:
@@ -354,13 +361,13 @@ async def handle_commands(user_message: str) -> str:
         kitchen_state = "on"
         update_display()  # (ADDED) Show new states
         log_system("Light turned ON")  # (ADDED)
-        return "Turning on the kitchen light."
+        return "Turning on the light."
     elif command == "kitchen-off":
         set_light_state(KITCHEN_LIGHT_PIN, "off")
         kitchen_state = "off"
         update_display()
         log_system("Light turned OFF")  # (ADDED)
-        return "Turning off the kitchen light."
+        return "Turning off the light."
     elif command == "ac-on":
         set_light_state(LIVINGROOM_AC_PIN, "on")
         livingroom_state = "on"
