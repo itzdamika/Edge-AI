@@ -353,37 +353,37 @@ async def handle_commands(user_message: str) -> str:
         set_light_state(KITCHEN_LIGHT_PIN, "on")
         kitchen_state = "on"
         update_display()  # (ADDED) Show new states
-        log_system("Kitchen Light turned ON")  # (ADDED)
+        log_system("Light turned ON")  # (ADDED)
         return "Turning on the kitchen light."
     elif command == "kitchen-off":
         set_light_state(KITCHEN_LIGHT_PIN, "off")
         kitchen_state = "off"
         update_display()
-        log_system("Kitchen Light turned OFF")  # (ADDED)
+        log_system("Light turned OFF")  # (ADDED)
         return "Turning off the kitchen light."
     elif command == "ac-on":
         set_light_state(LIVINGROOM_AC_PIN, "on")
         livingroom_state = "on"
         update_display()
-        log_system("Living Room AC turned ON")  # (ADDED)
+        log_system("AC turned ON")  # (ADDED)
         return "Turning on the AC."
     elif command == "ac-off":
         set_light_state(LIVINGROOM_AC_PIN, "off")
         livingroom_state = "off"
         update_display()
-        log_system("Living Room AC turned OFF")  # (ADDED)
+        log_system("AC turned OFF")  # (ADDED)
         return "Turning off the AC."
     elif command == "fan-on":
         set_light_state(BEDROOM_FAN_PIN, "on")
         bedroom_state = "on"
         update_display()
-        log_system("Bedroom Fan turned ON")  # (ADDED)
+        log_system("Fan turned ON")  # (ADDED)
         return "Turning on the fan."
     elif command == "fan-off":
         set_light_state(BEDROOM_FAN_PIN, "off")
         bedroom_state = "off"
         update_display()
-        log_system("Bedroom Fan turned OFF")  # (ADDED)
+        log_system("Fan turned OFF")  # (ADDED)
         return "Turning off the fan."
     else:
         return "Sorry, I didn't understand your request."
@@ -476,7 +476,7 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 # Run FastAPI Server
 # ---------------------------
-if _name_ == "_main_":
+if __name__ == "__main__":
     try:
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
