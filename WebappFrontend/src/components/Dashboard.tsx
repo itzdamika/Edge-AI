@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
@@ -23,36 +24,91 @@ import type { SensorData } from '../types';
 export default function Dashboard() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+
   const [showCamera, setShowCamera] = useState(false);
   const [liveSensors, setLiveSensors] = useState<SensorData | null>(null);
-  
-  // State for light controls
+
+  // local states for lights
   const [kitchenLight, setKitchenLight] = useState(false);
   const [livingRoomAc, setLivingRoomAc] = useState(false);
   const [bedroomFan, setBedroomFan] = useState(false);
 
-  // Poll the aggregator backend for live sensor data every 5 seconds
+  // logs
+  const [systemLogs, setSystemLogs] = useState<any[]>([]);
+  const [voiceLogs, setVoiceLogs] = useState<any[]>([]);
+
+  // Poll sensor data
   useEffect(() => {
     const fetchLiveData = async () => {
       try {
         const res = await fetch("http://192.168.1.13:8000/sensors");
         const data = await res.json();
-        // Map "air_quality" from backend to "airQuality" in SensorData type
         setLiveSensors({
           temperature: data.temperature,
           humidity: data.humidity,
           airQuality: data.air_quality,
         });
       } catch (error) {
-        console.error("Error fetching live sensor data", error);
+        console.error("Error fetching sensor data", error);
       }
     };
     fetchLiveData();
-    const interval = setInterval(fetchLiveData, 5000); // Poll every 5 seconds
+    const interval = setInterval(fetchLiveData, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // New function to toggle a light by sending a request to the backend
+  // Poll light states
+  useEffect(() => {
+    const fetchLights = async () => {
+      try {
+        const res = await fetch("http://192.168.1.13:8000/lights");
+        const data = await res.json();
+        // data = { kitchen: "on"/"off", livingroom: "on"/"off", bedroom: "on"/"off" }
+        setKitchenLight(data.kitchen === "on");
+        setLivingRoomAc(data.livingroom === "on");
+        setBedroomFan(data.bedroom === "on");
+      } catch (error) {
+        console.error("Error fetching lights state", error);
+      }
+    };
+    fetchLights();
+    const interval = setInterval(fetchLights, 3000); 
+    return () => clearInterval(interval);
+  }, []);
+
+  // Poll system logs
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const res = await fetch("http://192.168.1.13:8000/logs");
+        const data = await res.json();
+        setSystemLogs(data);
+      } catch (error) {
+        console.error("Error fetching logs", error);
+      }
+    };
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Poll voice logs
+  useEffect(() => {
+    const fetchVoiceLogs = async () => {
+      try {
+        const res = await fetch("http://192.168.1.13:8000/voicelogs");
+        const data = await res.json();
+        setVoiceLogs(data);
+      } catch (error) {
+        console.error("Error fetching voice logs", error);
+      }
+    };
+    fetchVoiceLogs();
+    const interval = setInterval(fetchVoiceLogs, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // toggle function remains same
   const toggleLight = async (light: string) => {
     let newState: boolean;
     let endpoint = "";
@@ -71,19 +127,26 @@ export default function Dashboard() {
     try {
       const res = await fetch(endpoint);
       if (res.ok) {
+        // no need to manually set states, we do though for immediate UI
         if (light === "kitchen") setKitchenLight(newState);
         else if (light === "livingroom") setLivingRoomAc(newState);
         else if (light === "bedroom") setBedroomFan(newState);
-        toast.success(`${light} light turned ${newState ? "ON" : "OFF"}`);
+        if (light === "kitchen") toast.success(`Light toggled!`);
+        else if (light === "livingroom") toast.success(`AC toggled!`);
+        else if (light === "bedroom") toast.success(`Fan toggled!`);
       } else {
-        toast.error(`Failed to control ${light} light`);
+        if (light === "kitchen") toast.error(`Failed to control Light!`);
+        else if (light === "livingroom") toast.error(`Failed to control AC!`);
+        else if (light === "bedroom") toast.error(`Failed to control Fan!`);
       }
     } catch (error) {
-      toast.error(`Error controlling ${light} light`);
+      if (light === "kitchen") toast.error(`Error controlling Light!`);
+      else if (light === "livingroom") toast.error(`Error controlling AC!`);
+      else if (light === "bedroom") toast.error(`Error controlling Fan!`);
     }
   };
 
-  // Use liveSensors if available, otherwise fallback to default values
+  // fallback for sensors
   const sensorValues = liveSensors || {
     temperature: 0,
     humidity: 0,
@@ -103,7 +166,7 @@ export default function Dashboard() {
           </motion.h1>
           <div className="flex items-center gap-4">
             <span className="text-white">
-              {user?.role.charAt(0).toUpperCase() + user?.role.slice(1)}
+              {user?.role}
             </span>
             <motion.button
               whileHover={{ scale: 1 }}
@@ -138,7 +201,7 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Light Control Section */}
+        {/* Our minimal toggles for kitchen, livingroom, bedroom */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -147,15 +210,15 @@ export default function Dashboard() {
           >
             <div className="flex items-center gap-3">
               <Sun className="w-6 h-6 text-yellow-400" />
-              <h3 className="text-lg font-semibold text-white">Kitchen Light</h3>
+              <h3 className="text-lg font-semibold text-white">Main Light</h3>
             </div>
             <motion.button
               whileHover={{ scale: 1 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => toggleLight("kitchen")}
               className={`text-3xl font-bold mt-2 w-full py-2 rounded-lg transition-colors ${
-                kitchenLight 
-                  ? 'bg-[#4ADE80] text-[#0A0A0A] hover:bg-[#22C55E]' 
+                kitchenLight
+                  ? 'bg-[#4ADE80] text-[#0A0A0A] hover:bg-[#22C55E]'
                   : 'bg-[#1F1F1F] hover:bg-[#2D2D2D]'
               }`}
             >
@@ -177,8 +240,8 @@ export default function Dashboard() {
               whileTap={{ scale: 0.9 }}
               onClick={() => toggleLight("livingroom")}
               className={`text-3xl font-bold mt-2 w-full py-2 rounded-lg transition-colors ${
-                livingRoomAc 
-                  ? 'bg-[#4ADE80] text-[#0A0A0A] hover:bg-[#22C55E]' 
+                livingRoomAc
+                  ? 'bg-[#4ADE80] text-[#0A0A0A] hover:bg-[#22C55E]'
                   : 'bg-[#1F1F1F] hover:bg-[#2D2D2D]'
               }`}
             >
@@ -193,15 +256,15 @@ export default function Dashboard() {
           >
             <div className="flex items-center gap-3">
               <Fan className="w-6 h-6 text-blue-400" />
-              <h3 className="text-lg font-semibold text-white">Bedroom Fan</h3>
+              <h3 className="text-lg font-semibold text-white">Main Fan</h3>
             </div>
             <motion.button
               whileHover={{ scale: 1 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => toggleLight("bedroom")}
               className={`text-3xl font-bold mt-2 w-full py-2 rounded-lg transition-colors ${
-                bedroomFan 
-                  ? 'bg-[#4ADE80] text-[#0A0A0A] hover:bg-[#22C55E]' 
+                bedroomFan
+                  ? 'bg-[#4ADE80] text-[#0A0A0A] hover:bg-[#22C55E]'
                   : 'bg-[#1F1F1F] hover:bg-[#2D2D2D]'
               }`}
             >
@@ -210,13 +273,9 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
-        {/* The rest of your dashboard code remains unchanged */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Devices grid - unchanged */}
-          {/* ... */}
-        </div>
-
+        {/* The rest is same as your code... e.g. security camera, logs, voice assistant messages */}
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Camera */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -259,6 +318,7 @@ export default function Dashboard() {
             )}
           </motion.div>
 
+          {/* System Logs */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -268,8 +328,15 @@ export default function Dashboard() {
               <AlertTriangle className="w-6 h-6 text-amber-400" />
               <h2 className="text-xl font-semibold text-white">System Logs</h2>
             </div>
-            <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
-              {/* System logs would be mapped here */}
+            <div className="space-y-4 max-h-48 overflow-y-auto pr-2">
+              {systemLogs.map((log, i) => (
+                <div key={i} className="text-sm">
+                  <span className="text-gray-500 mr-2">
+                    {new Date(log.timestamp*1000).toLocaleTimeString()}
+                  </span>
+                  {log.message}
+                </div>
+              ))}
             </div>
           </motion.div>
         </div>
@@ -284,7 +351,17 @@ export default function Dashboard() {
             <h2 className="text-xl font-semibold text-white">Voice Assistant</h2>
           </div>
           <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
-            {/* Voice assistant messages would be mapped here */}
+            {voiceLogs.map((log, i) => (
+              <div key={i} className="text-sm">
+                <div>
+                  <span className="text-pink-400">User:</span> {log.user}
+                </div>
+                <div>
+                  <span className="text-green-400">Assistant:</span> {log.assistant}
+                </div>
+                <hr className="my-1 border-gray-600" />
+              </div>
+            ))}
           </div>
         </motion.div>
       </div>
