@@ -4,6 +4,8 @@ import time
 import datetime
 import board
 import adafruit_dht
+import adafruit_ssd1306       # (ADDED: for OLED)
+import busio                  # (ADDED: for I2C bus)
 import cv2
 import base64
 import pigpio
@@ -96,6 +98,20 @@ kitchen_state = "off"
 livingroom_state = "off"
 bedroom_state = "off"
 
+# (ADDED) I2C and OLED initialization
+i2c = busio.I2C(board.SCL, board.SDA)  # SCL = GPIO3, SDA = GPIO2
+display = adafruit_ssd1306.SSD1306_I2C(128, 32, i2c)
+display.fill(0)
+display.show()
+
+def update_display():
+    """Update the OLED display with the current states of Light, AC, and Fan."""
+    display.fill(0)
+    display.text(f"Light: {kitchen_state.upper()}", 0, 0, 1)
+    display.text(f"AC: {livingroom_state.upper()}", 0, 10, 1)
+    display.text(f"Fan: {bedroom_state.upper()}", 0, 20, 1)
+    display.show()
+
 # ---------------------------
 # Sensor Reading Function (with DHT exception handling)
 # ---------------------------
@@ -105,17 +121,14 @@ def read_sensors():
         # Attempt reading DHT22
         temp = dhtDevice.temperature
         hum = dhtDevice.humidity
-        # If the read fails, we might get None or raise an exception
         if temp is not None and hum is not None:
             data['temperature'] = temp
             data['humidity'] = hum
         else:
-            # We'll just log a warning and keep them as None
             logger.warning("DHT22 read returned None; ignoring this cycle.")
             data['temperature'] = None
             data['humidity'] = None
     except Exception as e:
-        # Specifically ignore 'A full buffer was not returned. Try again.' or handle
         err_str = str(e).lower()
         if "a full buffer was not returned" in err_str:
             logger.warning("DHT22: A full buffer was not returned. Skipping this cycle.")
@@ -192,9 +205,7 @@ def set_light_state(pin: int, state: str):
         pi.write(pin, 0)
     else:
         raise ValueError("Invalid state; use 'on' or 'off'.")
-    logger.info(
-        f"[DEBUG] Pin {pin} set to {'HIGH' if state.lower()=='on' else 'LOW'}"
-    )
+    logger.info(f"[DEBUG] Pin {pin} set to {'HIGH' if state.lower()=='on' else 'LOW'}")
 
 @app.get("/light/kitchen")
 def control_kitchen_light(state: str = Query(..., description="Light state: 'on' or 'off'")):
@@ -202,6 +213,7 @@ def control_kitchen_light(state: str = Query(..., description="Light state: 'on'
     try:
         set_light_state(KITCHEN_LIGHT_PIN, state)
         kitchen_state = state.lower()
+        update_display()  # (ADDED) Show new states
         return {"light": "kitchen", "state": kitchen_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -212,6 +224,7 @@ def control_livingroom_ac(state: str = Query(..., description="Light state: 'on'
     try:
         set_light_state(LIVINGROOM_AC_PIN, state)
         livingroom_state = state.lower()
+        update_display()  # (ADDED) Show new states
         return {"light": "livingroom_ac", "state": livingroom_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -222,6 +235,7 @@ def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' o
     try:
         set_light_state(BEDROOM_FAN_PIN, state)
         bedroom_state = state.lower()
+        update_display()  # (ADDED) Show new states
         return {"light": "bedroom_fan", "state": bedroom_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -238,36 +252,32 @@ openai_client = AzureOpenAI(
 
 intent_prompt = """
 Analyze the user message and classify its intent into one of the predefined categories:
-Categories:
-1. command-query: The user wants to control the items in his home.
-2. general-query: The user is asking a general question.
-
-Instructions:
-Reply with only "command-query" or "general-query". No extra text.
+1. command-query: controlling the home
+2. general-query: general question
+Reply with only 'command-query' or 'general-query'.
 """
 
 general_prompt = """
 You are a SmartAura Smart Home Assistant. Keep answers short and direct.
 """
 
-# FINAL: We updated the command_prompt so "lights on" => "kitchen-on", "lights off" => "kitchen-off", etc.
 command_prompt = """
 We only have three devices:
-1) Kitchen Light => "kitchen-on"/"kitchen-off"
-2) Living Room AC => "ac-on"/"ac-off"
-3) Bedroom Fan => "fan-on"/"fan-off"
+1) Kitchen Light => 'kitchen-on'/'kitchen-off'
+2) Living Room AC => 'ac-on'/'ac-off'
+3) Bedroom Fan => 'fan-on'/'fan-off'
 
 Examples:
-- "Lights on" => "kitchen-on"
-- "Turn on the lights" => "kitchen-on"
-- "Lights off" => "kitchen-off"
-- "Turn off the lights" => "kitchen-off"
-- "Turn on the AC" => "ac-on"
-- "Turn off the AC" => "ac-off"
-- "Turn on the fan" => "fan-on"
-- "Turn off the fan" => "fan-off"
+- 'Lights on' => 'kitchen-on'
+- 'Turn on the lights' => 'kitchen-on'
+- 'Lights off' => 'kitchen-off'
+- 'Turn off the lights' => 'kitchen-off'
+- 'Turn on the AC' => 'ac-on'
+- 'Turn off the AC' => 'ac-off'
+- 'Turn on the fan' => 'fan-on'
+- 'Turn off the fan' => 'fan-off'
 
-If no match, respond with "error" only.
+If no match, respond with 'error' only.
 """
 
 async def _create_completion(messages: list, **kwargs) -> str:
@@ -284,7 +294,6 @@ async def _create_completion(messages: list, **kwargs) -> str:
     return response.choices[0].message.content.strip()
 
 async def handle_commands(user_message: str) -> str:
-    # We use the updated command_prompt
     messages = [
         {"role": "system", "content": command_prompt},
         {"role": "user", "content": user_message}
@@ -292,25 +301,38 @@ async def handle_commands(user_message: str) -> str:
     command = await _create_completion(messages)
     logger.info("Detected Command", intent=command)
 
-    # Now only these six:
+    global kitchen_state, livingroom_state, bedroom_state
+
     if command == "kitchen-on":
         set_light_state(KITCHEN_LIGHT_PIN, "on")
-        return "Turning on the kitchen light."
+        kitchen_state = "on"
+        update_display()  # (ADDED) Show new states
+        return "Turning on the light."
     elif command == "kitchen-off":
         set_light_state(KITCHEN_LIGHT_PIN, "off")
-        return "Turning off the kitchen light."
+        kitchen_state = "off"
+        update_display()
+        return "Turning off the light."
     elif command == "ac-on":
         set_light_state(LIVINGROOM_AC_PIN, "on")
-        return "Turning on the AC (living room light)."
+        livingroom_state = "on"
+        update_display()
+        return "Turning on the AC."
     elif command == "ac-off":
         set_light_state(LIVINGROOM_AC_PIN, "off")
+        livingroom_state = "off"
+        update_display()
         return "Turning off the AC."
     elif command == "fan-on":
         set_light_state(BEDROOM_FAN_PIN, "on")
-        return "Turning on the bedroom fan."
+        bedroom_state = "on"
+        update_display()
+        return "Turning on the fan."
     elif command == "fan-off":
         set_light_state(BEDROOM_FAN_PIN, "off")
-        return "Turning off the bedroom fan."
+        bedroom_state = "off"
+        update_display()
+        return "Turning off the fan."
     else:
         return "Sorry, I didn't understand your request."
 
@@ -342,29 +364,15 @@ async def process_user_query(user_message: str):
         logger.error("Error in process_user_query", error=str(e))
         return "An error occurred while processing your request."
 
-# Minimal device state manager if you want it, but not essential for physically toggling pins
 class DeviceStateManager:
-    def _init_(self) -> None:
+    def init(self) -> None:
         self.state = {
             "kitchen": "off",
             "ac": "off",
             "fan": "off"
         }
 
-    def set_kitchen_on(self):
-        self.state["kitchen"] = "on"
-    def set_kitchen_off(self):
-        self.state["kitchen"] = "off"
-    def set_ac_on(self):
-        self.state["ac"] = "on"
-    def set_ac_off(self):
-        self.state["ac"] = "off"
-    def set_fan_on(self):
-        self.state["fan"] = "on"
-    def set_fan_off(self):
-        self.state["fan"] = "off"
-
-device_state_manager = DeviceStateManager()
+device_state_manager = DeviceStateManager()  # Not essential to update code further, but we keep it
 
 # ---------------------------
 # Azure Speech Service Configuration for TTS
@@ -415,7 +423,7 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 # Run FastAPI Server
 # ---------------------------
-if _name_ == "_main_":
+if __name__ == "__main__":
     try:
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
