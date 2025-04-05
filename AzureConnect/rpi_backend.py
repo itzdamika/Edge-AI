@@ -10,7 +10,7 @@ import pigpio
 
 app = FastAPI()
 
-# Enable CORS for external clients (like your React dashboard)
+# Enable CORS for external clients
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, restrict to your trusted domains.
@@ -45,10 +45,13 @@ KITCHEN_LIGHT_PIN = 22
 LIVINGROOM_AC_PIN = 23
 BEDROOM_FAN_PIN = 24
 
-# Configure light control pins as outputs and set to off (0)
+# Configure light control pins as outputs and initialize them to off (0)
 for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
+
+# Set to True if your relay module is active low (i.e., LOW turns the light on)
+ACTIVE_LOW = False
 
 def read_sensors():
     """Read sensor data and return it as a dictionary."""
@@ -124,13 +127,16 @@ def video_feed():
 
 # ----- Light Control Endpoints -----
 def set_light_state(pin: int, state: str):
-    """Set the specified GPIO output for a light."""
+    """Set the specified GPIO output for a light, with debug logging."""
+    print(f"[DEBUG] Setting pin {pin} to state '{state}'")
     if state.lower() == "on":
-        pi.write(pin, 1)
+        value = 0 if ACTIVE_LOW else 1
     elif state.lower() == "off":
-        pi.write(pin, 0)
+        value = 1 if ACTIVE_LOW else 0
     else:
         raise ValueError("Invalid state; use 'on' or 'off'.")
+    pi.write(pin, value)
+    print(f"[DEBUG] Pin {pin} set to {'LOW' if value==0 else 'HIGH'}")
 
 @app.get("/light/kitchen")
 def control_kitchen_light(state: str = Query(..., description="Light state: 'on' or 'off'")):
@@ -156,6 +162,6 @@ def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' o
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
