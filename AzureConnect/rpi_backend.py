@@ -7,6 +7,8 @@ import adafruit_dht
 import cv2
 import base64
 import pigpio
+import busio
+import adafruit_ssd1306
 
 app = FastAPI()
 
@@ -45,17 +47,36 @@ KITCHEN_LIGHT_PIN = 22
 LIVINGROOM_AC_PIN = 23
 BEDROOM_FAN_PIN = 24
 
-# Configure light control pins as outputs and initialize them to off (0)
+# Configure light control pins as outputs and set to off (0)
 for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
 
-# Set ACTIVE_LOW to True if your relay module is active low.
-ACTIVE_LOW = False
+# Global variables for light states (store "on" or "off")
+kitchen_state = "off"
+livingroom_state = "off"
+bedroom_state = "off"
+
+# ----- OLED Display Initialization -----
+i2c = busio.I2C(board.SCL, board.SDA)
+display = adafruit_ssd1306.SSD1306_I2C(128, 32, i2c)
+# Clear display initially
+display.fill(0)
+display.show()
+
+def update_display():
+    """Update the OLED display with the current light states."""
+    display.fill(0)
+    # Display each light's state on a separate line
+    display.text(f"Ammo: {kitchen_state.upper()}", 0, 0, 1)
+    display.text(f"Gay: {livingroom_state.upper()}", 0, 10, 1)
+    display.text(f"Sex: {bedroom_state.upper()}", 0, 20, 1)
+    display.show()
 
 def read_sensors():
     """Read sensor data and return it as a dictionary."""
     data = {}
+    # DHT22: Temperature & Humidity
     try:
         data['temperature'] = dhtDevice.temperature
         data['humidity'] = dhtDevice.humidity
@@ -64,6 +85,7 @@ def read_sensors():
         data['temperature'] = None
         data['humidity'] = None
 
+    # MQ‑135: Digital output; assume HIGH means "Poor" air quality
     try:
         aq_val = pi.read(AIR_QUALITY_PIN)
         data['air_quality'] = "Poor" if aq_val == 1 else "Good"
@@ -71,6 +93,7 @@ def read_sensors():
         print("Air quality sensor error:", e)
         data['air_quality'] = None
 
+    # HC‑SR501: Motion sensor
     try:
         motion_val = pi.read(MOTION_SENSOR_PIN)
         data['motion'] = True if motion_val == 1 else False
@@ -81,10 +104,11 @@ def read_sensors():
     data['timestamp'] = time.time()
     return data
 
-# Global variable to cache latest sensor data
+# Global variable to cache the latest sensor data
 latest_data = {}
 
 def sensor_updater():
+    """Periodically update sensor data."""
     global latest_data
     while True:
         latest_data = read_sensors()
@@ -94,9 +118,12 @@ threading.Thread(target=sensor_updater, daemon=True).start()
 
 @app.get("/sensors")
 def get_sensor_data():
+    """Return the latest sensor data as JSON."""
     return latest_data
 
+# ----- Live Video Streaming Endpoint -----
 def generate_frames():
+    """Continuously capture frames from the USB camera and yield as an MJPEG stream."""
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
@@ -115,40 +142,51 @@ def generate_frames():
 
 @app.get("/video_feed")
 def video_feed():
+    """Stream a live MJPEG video from the USB camera."""
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
+# ----- Light Control Endpoints -----
 def set_light_state(pin: int, state: str):
-    print(f"[DEBUG] Attempting to set pin {pin} to state '{state}'")
+    """Set the specified GPIO output for a light with debug logging."""
+    print(f"[DEBUG] Setting pin {pin} to state '{state}'")
     if state.lower() == "on":
-        value = 0 if ACTIVE_LOW else 1
+        pi.write(pin, 1)
     elif state.lower() == "off":
-        value = 1 if ACTIVE_LOW else 0
+        pi.write(pin, 0)
     else:
         raise ValueError("Invalid state; use 'on' or 'off'.")
-    pi.write(pin, value)
-    print(f"[DEBUG] Pin {pin} set to {'LOW' if value==0 else 'HIGH'}")
+    print(f"[DEBUG] Pin {pin} set to {'HIGH' if state.lower()=='on' else 'LOW'}")
 
 @app.get("/light/kitchen")
 def control_kitchen_light(state: str = Query(..., description="Light state: 'on' or 'off'")):
+    global kitchen_state
     try:
         set_light_state(KITCHEN_LIGHT_PIN, state)
-        return {"light": "kitchen", "state": state.lower()}
+        kitchen_state = state.lower()
+        update_display()
+        return {"light": "kitchen", "state": kitchen_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/light/livingroom")
 def control_livingroom_ac(state: str = Query(..., description="Light state: 'on' or 'off'")):
+    global livingroom_state
     try:
         set_light_state(LIVINGROOM_AC_PIN, state)
-        return {"light": "livingroom_ac", "state": state.lower()}
+        livingroom_state = state.lower()
+        update_display()
+        return {"light": "livingroom_ac", "state": livingroom_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/light/bedroom")
 def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' or 'off'")):
+    global bedroom_state
     try:
         set_light_state(BEDROOM_FAN_PIN, state)
-        return {"light": "bedroom_fan", "state": state.lower()}
+        bedroom_state = state.lower()
+        update_display()
+        return {"light": "bedroom_fan", "state": bedroom_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
