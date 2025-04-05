@@ -225,7 +225,7 @@ def start_voice_assistant():
 # Start voice assistant in a background thread
 threading.Thread(target=start_voice_assistant, daemon=True).start()
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     try:
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
