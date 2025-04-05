@@ -384,6 +384,7 @@ async def process_user_query(user_message: str):
             {"role": "system", "content": "Determine the intent of the following command."},
             {"role": "user", "content": user_message},
         ]
+        
         detected_intent = (await _create_completion(intent_messages)).lower()
         logger.info("Detected Intent", intent=detected_intent)
         if detected_intent == "command-query":
@@ -398,7 +399,7 @@ async def process_user_query(user_message: str):
         return "An error occurred while processing your request."
 
 class DeviceStateManager:
-    def init(self) -> None:
+    def __init__(self) -> None:
         self.state = {
             "ac": {"status": "off", "temperature": None},
             "fan": {"status": "off", "speed": None},
@@ -441,7 +442,7 @@ class DeviceStateManager:
         if self.state["fan"]["speed"] == speed:
             return False, f"Fan is already set to speed {speed}."
         self.state["fan"]["speed"] = speed
-        return True, f"Setting the fan speed to {speed}."
+        return True, f"Setting the fan speed to {speed}°."
     def set_light_on(self) -> bool:
         if self.state["light"]["status"] == "on":
             return False
@@ -504,7 +505,7 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 # Run FastAPI Server
 # ---------------------------
-if _name_ == "_main_":
+if __name__ == "__main__":
     try:
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
