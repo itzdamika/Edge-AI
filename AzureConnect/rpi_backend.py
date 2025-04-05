@@ -4,8 +4,8 @@ import time
 import datetime
 import board
 import adafruit_dht
-import adafruit_ssd1306
-import busio
+import adafruit_ssd1306       # (ADDED: for OLED)
+import busio                  # (ADDED: for I2C bus)
 import cv2
 import base64
 import pigpio
@@ -41,6 +41,7 @@ logger = structlog.get_logger()
 # ---------------------------
 class Config(BaseSettings):
     AZURE_OPENAI_API_KEY: str
+    AZURE_OPENAI_API_KEY: str
     AZURE_OPENAI_DEPLOYMENT_ID: str
     AZURE_ENDPOINT: str
     SPEECH_KEY: str
@@ -68,90 +69,84 @@ app.add_middleware(
 # ---------------------------
 
 # DHT22 sensor on GPIO27
-import adafruit_dht
 dhtDevice = adafruit_dht.DHT22(board.D27)
 
 # Initialize pigpio (ensure pigpiod is running)
-import pigpio
 pi = pigpio.pi()
 if not pi.connected:
     raise SystemExit("Could not connect to pigpio daemon. Start it with 'sudo systemctl start pigpiod'.")
 
 # Digital sensor pins
-AIR_QUALITY_PIN = 18
-MOTION_SENSOR_PIN = 17
+AIR_QUALITY_PIN = 18    # MQ‑135 digital output
+MOTION_SENSOR_PIN = 17  # HC‑SR501 motion sensor
+
 pi.set_mode(AIR_QUALITY_PIN, pigpio.INPUT)
 pi.set_pull_up_down(AIR_QUALITY_PIN, pigpio.PUD_DOWN)
 pi.set_mode(MOTION_SENSOR_PIN, pigpio.INPUT)
 pi.set_pull_up_down(MOTION_SENSOR_PIN, pigpio.PUD_DOWN)
 
-# Lights
+# Light control pins
 KITCHEN_LIGHT_PIN = 22
 LIVINGROOM_AC_PIN = 23
 BEDROOM_FAN_PIN = 24
+
 for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
 
-# Global states
+# Global light state variables (simple, no locks)
 kitchen_state = "off"
 livingroom_state = "off"
 bedroom_state = "off"
 
-# (OLED code if needed)
-import busio
-import adafruit_ssd1306
-i2c = busio.I2C(board.SCL, board.SDA)
+# (ADDED) I2C and OLED initialization
+i2c = busio.I2C(board.SCL, board.SDA)  # SCL = GPIO3, SDA = GPIO2
 display = adafruit_ssd1306.SSD1306_I2C(128, 32, i2c)
 display.fill(0)
 display.show()
 
-def update_oled():
-    """Minimal function to show states."""
+def update_display():
+    """Update the OLED display with the current states of Light, AC, and Fan."""
     display.fill(0)
-    display.text(f"Light:{kitchen_state.upper()}", 0, 0, 1)
-    display.text(f"AC:{livingroom_state.upper()}", 0, 10, 1)
-    display.text(f"Fan:{bedroom_state.upper()}", 0, 20, 1)
+    display.text(f"Light: {kitchen_state.upper()}", 0, 0, 1)
+    display.text(f"AC: {livingroom_state.upper()}", 0, 10, 1)
+    display.text(f"Fan: {bedroom_state.upper()}", 0, 20, 1)
     display.show()
 
-# ---------------------------
-# Minimal Logging
-# ---------------------------
-systemLogs = []    # store toggles ("Light turned on", etc.)
-voiceLogs = []     # store user queries + responses
+# (ADDED) Minimal logging arrays for system and voice
+systemLogs = []
+voiceLogs = []
 
-def log_system(msg: str):
-    entry = {
+def log_system(message: str):
+    """Store a system log entry (e.g. 'Kitchen Light turned ON')"""
+    systemLogs.append({
         "timestamp": time.time(),
-        "message": msg
-    }
-    systemLogs.append(entry)
-    # keep small
+        "message": message
+    })
     if len(systemLogs) > 200:
         systemLogs.pop(0)
 
-def log_voice(user: str, response: str):
-    entry = {
+def log_voice(user: str, assistant: str):
+    """Store a voice log entry with user question + assistant answer."""
+    voiceLogs.append({
         "timestamp": time.time(),
-        "user_message": user,
-        "assistant_response": response
-    }
-    voiceLogs.append(entry)
+        "user": user,
+        "assistant": assistant
+    })
     if len(voiceLogs) > 200:
         voiceLogs.pop(0)
 
 @app.get("/logs")
 def get_logs():
-    # return system logs
     return systemLogs
 
 @app.get("/voicelogs")
-def get_voicelogs():
+def get_voice_logs():
     return voiceLogs
 
-# Provide a minimal /lights endpoint returning the on/off states
+# (ADDED) a /lights endpoint returning the states
 @app.get("/lights")
-def get_lights():
+def get_light_states():
     return {
         "kitchen": kitchen_state,
         "livingroom": livingroom_state,
@@ -159,41 +154,44 @@ def get_lights():
     }
 
 # ---------------------------
-# DHT Reading
+# Sensor Reading Function (with DHT exception handling)
 # ---------------------------
 def read_sensors():
     data = {}
     try:
-        val_t = dhtDevice.temperature
-        val_h = dhtDevice.humidity
-        if val_t is not None and val_h is not None:
-            data['temperature'] = val_t
-            data['humidity'] = val_h
+        # Attempt reading DHT22
+        temp = dhtDevice.temperature
+        hum = dhtDevice.humidity
+        if temp is not None and hum is not None:
+            data['temperature'] = temp
+            data['humidity'] = hum
         else:
-            logger.warning("DHT22 read returned None.")
+            logger.warning("DHT22 read returned None; ignoring this cycle.")
             data['temperature'] = None
             data['humidity'] = None
     except Exception as e:
-        err = str(e).lower()
-        if "full buffer was not returned" in err:
-            logger.warning("DHT partial read.")
+        err_str = str(e).lower()
+        if "a full buffer was not returned" in err_str:
+            logger.warning("DHT22: A full buffer was not returned. Skipping this cycle.")
+            data['temperature'] = None
+            data['humidity'] = None
         else:
-            logger.error("DHT Error", error=str(e))
-        data['temperature'] = None
-        data['humidity'] = None
+            logger.error("DHT22 error", error=str(e))
+            data['temperature'] = None
+            data['humidity'] = None
 
-    # MQ-135
     try:
-        val_aq = pi.read(AIR_QUALITY_PIN)
-        data['air_quality'] = "Poor" if val_aq==1 else "Good"
-    except:
+        aq_val = pi.read(AIR_QUALITY_PIN)
+        data['air_quality'] = "Poor" if aq_val == 1 else "Good"
+    except Exception as e:
+        logger.error("Air quality sensor error", error=str(e))
         data['air_quality'] = None
 
-    # motion
     try:
-        val_mot = pi.read(MOTION_SENSOR_PIN)
-        data['motion'] = True if val_mot==1 else False
-    except:
+        motion_val = pi.read(MOTION_SENSOR_PIN)
+        data['motion'] = True if motion_val == 1 else False
+    except Exception as e:
+        logger.error("Motion sensor error", error=str(e))
         data['motion'] = None
 
     data['timestamp'] = time.time()
@@ -205,17 +203,15 @@ def sensor_updater():
     while True:
         latest_data = read_sensors()
         time.sleep(10)
-
 threading.Thread(target=sensor_updater, daemon=True).start()
 
 @app.get("/sensors")
-def get_sensors():
+def get_sensor_data():
     return latest_data
 
 # ---------------------------
-# Video feed
+# Live Video Streaming Endpoint
 # ---------------------------
-import cv2
 def generate_frames():
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
@@ -227,7 +223,11 @@ def generate_frames():
         ret, buffer = cv2.imencode('.jpg', frame)
         if not ret:
             continue
-        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        frame_bytes = buffer.tobytes()
+        yield (
+            b'--frame\r\n'
+            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'
+        )
         time.sleep(0.1)
     cap.release()
 
@@ -236,53 +236,64 @@ def video_feed():
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 # ---------------------------
-# Light Endpoints
+# Light Control Endpoints (Simplified)
 # ---------------------------
-def set_light_state(pin: int, st: str):
-    pi.write(pin, 1 if st=='on' else 0)
-    logger.info(f"Pin {pin} => {st}")
+def set_light_state(pin: int, state: str):
+    logger.info(f"[DEBUG] Setting pin {pin} to state '{state}'")
+    if state.lower() == "on":
+        pi.write(pin, 1)
+    elif state.lower() == "off":
+        pi.write(pin, 0)
+    else:
+        raise ValueError("Invalid state; use 'on' or 'off'.")
+    logger.info(
+        f"[DEBUG] Pin {pin} set to {'HIGH' if state.lower()=='on' else 'LOW'}"
+    )
 
 @app.get("/light/kitchen")
-def control_kitchen_light(state: str):
+def control_kitchen_light(state: str = Query(..., description="Light state: 'on' or 'off'")):
     global kitchen_state
-    if state not in ("on","off"):
-        raise HTTPException(400, "Invalid state")
-    set_light_state(KITCHEN_LIGHT_PIN, state)
-    kitchen_state = state
-    update_oled()
-    log_system(f"Kitchen Light turned {state.upper()}")
-    return {"light":"kitchen", "state":state}
+    try:
+        set_light_state(KITCHEN_LIGHT_PIN, state)
+        kitchen_state = state.lower()
+        update_display()  # (ADDED) Show new states
+        log_system(f"Kitchen Light turned {kitchen_state.upper()}")  # (ADDED)
+        return {"light": "kitchen", "state": kitchen_state}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/light/livingroom")
-def control_livingroom_ac(state: str):
+def control_livingroom_ac(state: str = Query(..., description="Light state: 'on' or 'off'")):
     global livingroom_state
-    if state not in ("on","off"):
-        raise HTTPException(400, "Invalid state")
-    set_light_state(LIVINGROOM_AC_PIN, state)
-    livingroom_state = state
-    update_oled()
-    log_system(f"Living Room AC turned {state.upper()}")
-    return {"light":"livingroom_ac","state":state}
+    try:
+        set_light_state(LIVINGROOM_AC_PIN, state)
+        livingroom_state = state.lower()
+        update_display()  # (ADDED) Show new states
+        log_system(f"Living Room AC turned {livingroom_state.upper()}")  # (ADDED)
+        return {"light": "livingroom_ac", "state": livingroom_state}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/light/bedroom")
-def control_bedroom_fan(state: str):
+def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' or 'off'")):
     global bedroom_state
-    if state not in ("on","off"):
-        raise HTTPException(400, "Invalid state")
-    set_light_state(BEDROOM_FAN_PIN, state)
-    bedroom_state = state
-    update_oled()
-    log_system(f"Bedroom Fan turned {state.upper()}")
-    return {"light":"bedroom_fan","state":state}
+    try:
+        set_light_state(BEDROOM_FAN_PIN, state)
+        bedroom_state = state.lower()
+        update_display()  # (ADDED) Show new states
+        log_system(f"Bedroom Fan turned {bedroom_state.upper()}")  # (ADDED)
+        return {"light": "bedroom_fan", "state": bedroom_state}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # ---------------------------
-# GPT & Voice Assistant
+# GPT & Voice Assistant Components
 # ---------------------------
 from openai import AzureOpenAI
 openai_client = AzureOpenAI(
     api_key=config.AZURE_OPENAI_API_KEY,
     api_version="2024-05-01-preview",
-    azure_endpoint=config.AZURE_ENDPOINT
+    azure_endpoint=config.AZURE_ENDPOINT,
 )
 
 intent_prompt = """
@@ -315,118 +326,159 @@ Examples:
 If no match, respond with 'error' only.
 """
 
-async def _create_completion(msgs):
-    resp = await asyncio.to_thread(lambda: openai_client.chat.completions.create(
-        messages=msgs, model=config.AZURE_OPENAI_API_KEY, max_tokens=100
-    ))
-    return resp.choices[0].message.content.strip()
+async def _create_completion(messages: list, **kwargs) -> str:
+    default_kwargs = {
+        "model": config.AZURE_OPENAI_DEPLOYMENT_ID,
+        "max_tokens": 100,
+        "temperature": 0.7,
+        "top_p": 0.95,
+    }
+    default_kwargs.update(kwargs)
+    response = await asyncio.to_thread(
+        lambda: openai_client.chat.completions.create(messages=messages, **default_kwargs)
+    )
+    return response.choices[0].message.content.strip()
 
-async def handle_commands(usr:str)->str:
-    # minimal
-    msgs=[
-        {"role":"system","content":command_prompt},
-        {"role":"user","content":usr}
+async def handle_commands(user_message: str) -> str:
+    messages = [
+        {"role": "system", "content": command_prompt},
+        {"role": "user", "content": user_message}
     ]
-    cmd=await _create_completion(msgs)
-    logger.info("Detected Command", intent=cmd)
-    if cmd=="kitchen-on":
-        set_light_state(KITCHEN_LIGHT_PIN,"on")
-        global kitchen_state
-        kitchen_state="on"
-        update_oled()
-        log_system("Kitchen Light turned ON")
+    command = await _create_completion(messages)
+    logger.info("Detected Command", intent=command)
+
+    global kitchen_state, livingroom_state, bedroom_state
+
+    if command == "kitchen-on":
+        set_light_state(KITCHEN_LIGHT_PIN, "on")
+        kitchen_state = "on"
+        update_display()  # (ADDED) Show new states
+        log_system("Kitchen Light turned ON")  # (ADDED)
         return "Turning on the kitchen light."
-    # etc. for other commands ...
-    return "Sorry, not recognized"
-
-async def handle_general(usr:str)->str:
-    msgs=[
-        {"role":"system","content":general_prompt},
-        {"role":"user","content":usr}
-    ]
-    ret=await _create_completion(msgs)
-    return ret
-
-async def process_user_query(usr:str):
-    # which intent
-    msgs=[
-        {"role":"system","content":intent_prompt},
-        {"role":"user","content":usr}
-    ]
-    got=await _create_completion(msgs)
-    got=got.lower()
-    if got=="command-query":
-        ans=await handle_commands(usr)
+    elif command == "kitchen-off":
+        set_light_state(KITCHEN_LIGHT_PIN, "off")
+        kitchen_state = "off"
+        update_display()
+        log_system("Kitchen Light turned OFF")  # (ADDED)
+        return "Turning off the kitchen light."
+    elif command == "ac-on":
+        set_light_state(LIVINGROOM_AC_PIN, "on")
+        livingroom_state = "on"
+        update_display()
+        log_system("Living Room AC turned ON")  # (ADDED)
+        return "Turning on the AC."
+    elif command == "ac-off":
+        set_light_state(LIVINGROOM_AC_PIN, "off")
+        livingroom_state = "off"
+        update_display()
+        log_system("Living Room AC turned OFF")  # (ADDED)
+        return "Turning off the AC."
+    elif command == "fan-on":
+        set_light_state(BEDROOM_FAN_PIN, "on")
+        bedroom_state = "on"
+        update_display()
+        log_system("Bedroom Fan turned ON")  # (ADDED)
+        return "Turning on the fan."
+    elif command == "fan-off":
+        set_light_state(BEDROOM_FAN_PIN, "off")
+        bedroom_state = "off"
+        update_display()
+        log_system("Bedroom Fan turned OFF")  # (ADDED)
+        return "Turning off the fan."
     else:
-        ans=await handle_general(usr)
-    log_voice(usr,ans) # store in voice logs
-    return ans
+        return "Sorry, I didn't understand your request."
 
-voiceLogs=[]
+async def handle_general(user_message: str) -> str:
+    messages = [
+        {"role": "system", "content": general_prompt},
+        {"role": "user", "content": user_message}
+    ]
+    return await _create_completion(messages)
 
-def log_voice(user_msg,assistant_rsp):
-    voiceLogs.append({
-        "timestamp":time.time(),
-        "user": user_msg,
-        "response":assistant_rsp
-    })
-    if len(voiceLogs)>200:voiceLogs.pop(0)
+async def process_user_query(user_message: str):
+    try:
+        messages = [
+            {"role": "system", "content": intent_prompt},
+            {"role": "user", "content": user_message},
+        ]
+        detected_intent = (await _create_completion(messages)).lower().strip()
+        logger.info("Detected Intent", intent=detected_intent)
 
-@app.get("/logs")
-def get_logs():
-    return systemLogs
+        if detected_intent == "command-query":
+            response_text = await handle_commands(user_message)
+        elif detected_intent == "general-query":
+            response_text = await handle_general(user_message)
+        else:
+            response_text = "I'm not sure what you're asking."
+        # (ADDED) Log voice user -> response
+        log_voice(user_message, response_text)
+        return response_text
+    except Exception as e:
+        logger.error("Error in process_user_query", error=str(e))
+        return "An error occurred while processing your request."
 
-@app.get("/voicelogs")
-def get_voicelogs():
-    return voiceLogs
+class DeviceStateManager:
+    def init(self) -> None:
+        self.state = {
+            "kitchen": "off",
+            "ac": "off",
+            "fan": "off"
+        }
 
+device_state_manager = DeviceStateManager()
+
+# ---------------------------
+# Azure Speech Service Configuration for TTS
+# ---------------------------
 speech_config = speechsdk.SpeechConfig(subscription=config.SPEECH_KEY, region=config.SERVICE_REGION)
 speech_config.set_property(speechsdk.PropertyId.SpeechServiceConnection_Endpoint, config.TTS_ENDPOINT)
-speech_config.speech_synthesis_voice_name="en-US-JennyNeural"
+speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
 audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
-speech_synthesizer=speechsdk.SpeechSynthesizer(speech_config, audio_config)
+speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
 
 def recognize_speech(timeout=5):
-    rec=sr.Recognizer()
-    with sr.Microphone() as src:
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
         print("Listening...")
-        rec.adjust_for_ambient_noise(src)
+        recognizer.adjust_for_ambient_noise(source)
         try:
-            audio=rec.listen(src,timeout=timeout)
-            text=rec.recognize_google(audio)
+            audio = recognizer.listen(source, timeout=timeout)
+            text = recognizer.recognize_google(audio)
             logger.info("Recognized speech", text=text)
             return text
-        except:
+        except Exception as e:
+            logger.error("Speech recognition error", error=str(e))
             return None
 
-def speak_text(txt:str):
-    print(f"Speaking: {txt}")
-    ret=speech_synthesizer.speak_text_async(txt).get()
-    if ret.reason==speechsdk.ResultReason.SynthesizingAudioCompleted:
-        print("Speech done.")
+def speak_text(text: str):
+    print(f"Speaking: {text}")
+    result = speech_synthesizer.speak_text_async(text).get()
+    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        print("Speech synthesized successfully.")
     else:
-        print("Speech error.")
+        print("Speech synthesis error:", result.cancellation_details)
 
-async def voice_loop():
+async def voice_assistant_loop():
     while True:
         print("Voice assistant waiting for input...")
-        user_text=recognize_speech(5)
+        user_text = recognize_speech(timeout=5)
         if user_text:
-            ans=await process_user_query(user_text)
-            speak_text(ans)
+            response = await process_user_query(user_text)
+            logger.info("Assistant Response", response=response)
+            speak_text(response)
         await asyncio.sleep(1)
 
 def start_voice_assistant():
-    asyncio.run(voice_loop())
+    asyncio.run(voice_assistant_loop())
 
-threading.Thread(target=start_voice_assistant,daemon=True).start()
+threading.Thread(target=start_voice_assistant, daemon=True).start()
 
 # ---------------------------
-# Run
+# Run FastAPI Server
 # ---------------------------
-if __name__=="__main__":
-    import uvicorn
+if _name_ == "_main_":
     try:
+        import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
     finally:
         pi.stop()
