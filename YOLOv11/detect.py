@@ -7,12 +7,12 @@ with open('labels.txt', 'r') as f:
     labels = [line.strip() for line in f.readlines()]
 
 # Load model
-interpreter = tflite.Interpreter(model_path="yolov11-nano.tflite")
+interpreter = tflite.Interpreter(model_path="best_float32.tflite")
 interpreter.allocate_tensors()
 
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
-input_shape = input_details[0]['shape'][1:3]  # height, width
+input_shape = input_details[0]['shape'][1:3] 
 
 cap = cv2.VideoCapture(0)
 
