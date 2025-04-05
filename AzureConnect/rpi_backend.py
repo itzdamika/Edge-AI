@@ -297,10 +297,23 @@ openai_client = AzureOpenAI(
 )
 
 intent_prompt = """
-Analyze the user message and classify its intent into one of the predefined categories:
-1. command-query: controlling the home
-2. general-query: general question
-Reply with only 'command-query' or 'general-query'.
+Analyze the user’s message and classify its intent into one of the following categories:
+
+1. **command-query**: Commands related to controlling devices in the home.  
+   Examples:  
+   - "On the lights"  
+   - "Turn on the lights"  
+   - "Off the lights"  
+   - "On the AC"  
+   - "Off the AC"  
+   - "Turn on the fan"
+
+2. **general-query**: All other types of general questions or statements unrelated to home device control.  
+
+**Instructions:**
+- Respond with only one of the following intents: **command-query** or **general-query**.
+- Ensure that the intent is classified accurately based on the user’s message.
+
 """
 
 general_prompt = """
@@ -329,7 +342,7 @@ You are responsible for controlling three devices in the house:
 - "Turn off the fan" => 'fan-off'
 
 **Important Notes:**
-- No additional text or explanation is required. Only respond with the action corresponding to the command or "error" if there is no match. Only just the text and nothing else
+- No additional text or explanation is required. Only respond with the action corresponding to the command or "error" if there is no match. Only just the text and nothing else.
 
 """
 
