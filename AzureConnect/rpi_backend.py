@@ -35,7 +35,7 @@ structlog.configure(
 logger = structlog.get_logger()
 
 # ---------------------------
-# Configuration Using pydantic_settings
+# Configuration Using pydantic_settings (.env file)
 # ---------------------------
 class Config(BaseSettings):
     AZURE_OPENAI_API_KEY: str
@@ -44,7 +44,7 @@ class Config(BaseSettings):
     SPEECH_KEY: str
     SERVICE_REGION: str
     TTS_ENDPOINT: str
-    
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 config = Config()
@@ -55,7 +55,7 @@ config = Config()
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,6 +64,7 @@ app.add_middleware(
 # ---------------------------
 # Sensor & Light Control Initialization
 # ---------------------------
+
 # DHT22 sensor on GPIO27
 dhtDevice = adafruit_dht.DHT22(board.D27)
 
@@ -90,7 +91,7 @@ for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
 
-# Global variables for light states
+# Global light state variables (simple, no locks)
 kitchen_state = "off"
 livingroom_state = "off"
 bedroom_state = "off"
@@ -159,7 +160,7 @@ def video_feed():
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 # ---------------------------
-# Light Control Endpoints
+# Light Control Endpoints (Simplified)
 # ---------------------------
 def set_light_state(pin: int, state: str):
     logger.info(f"[DEBUG] Setting pin {pin} to state '{state}'")
@@ -177,7 +178,6 @@ def control_kitchen_light(state: str = Query(..., description="Light state: 'on'
     try:
         set_light_state(KITCHEN_LIGHT_PIN, state)
         kitchen_state = state.lower()
-        # Optionally update an OLED display here
         return {"light": "kitchen", "state": kitchen_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -212,266 +212,30 @@ openai_client = AzureOpenAI(
     azure_endpoint=config.AZURE_ENDPOINT,
 )
 
-async def _create_completion(messages: list, **kwargs) -> str:
-    default_kwargs = {
-        "model": config.AZURE_OPENAI_DEPLOYMENT_ID,
-        "max_tokens": 100,
-        "temperature": 0.7,
-        "top_p": 0.95,
-    }
-    default_kwargs.update(kwargs)
-    response = await asyncio.to_thread(
-        lambda: openai_client.chat.completions.create(messages=messages, **default_kwargs)
-    )
-    return response.choices[0].message.content.strip()
-
-async def handle_commands(user_message: str) -> str:
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": f"Command: {user_message}"}
-    ]
-    command = await _create_completion(messages)
-    logger.info("Detected Command", intent=command)
-    if command == "ac-control-on":
-        if not device_state_manager.set_ac_on():
-            return "AC is already turned on."
-        return "Turning on the AC."
-    elif command == "ac-control-off":
-        if not device_state_manager.set_ac_off():
-            return "AC is already turned off."
-        return "Turning off the AC."
-    elif command.startswith("ac-control-"):
-        try:
-            ac_temp = int(command.split("-")[-1])
-            success, msg = device_state_manager.set_ac_temperature(ac_temp)
-            return msg
-        except ValueError:
-            return "Invalid temperature setting for AC."
-    elif command == "fan-control-on":
-        if not device_state_manager.set_fan_on():
-            return "Fan is already turned on."
-        return "Turning on the Fan."
-    elif command == "fan-control-off":
-        if not device_state_manager.set_fan_off():
-            return "Fan is already turned off."
-        return "Turning off the Fan."
-    elif command.startswith("fan-control-"):
-        try:
-            fan_speed = int(command.split("-")[-1])
-            if fan_speed not in [1, 2, 3]:
-                return "Invalid fan speed. Please choose between 1, 2, or 3."
-            success, msg = device_state_manager.set_fan_speed(fan_speed)
-            return msg
-        except ValueError:
-            return "Invalid fan speed setting."
-    elif command == "light-control-on":
-        if not device_state_manager.set_light_on():
-            return "Light is already turned on."
-        return "Turning on the Light."
-    elif command == "light-control-off":
-        if not device_state_manager.set_light_off():
-            return "Light is already turned off."
-        return "Turning off the Light."
-    else:
-        return "Sorry, I didn't understand your request."
-
-async def handle_general(user_message: str) -> str:
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": f"Question: {user_message}"}
-    ]
-    return await _create_completion(messages)
-
-async def process_user_query(user_message: str):
-    try:
-        intent_messages = [
-            {"role": "system", "content": "Determine the intent of the following command."},
-            {"role": "user", "content": user_message},
-        ]
-        detected_intent = (await _create_completion(intent_messages)).lower()
-        logger.info("Detected Intent", intent=detected_intent)
-        if detected_intent == "command-query":
-            response_text = await handle_commands(user_message)
-        elif detected_intent == "general-query":
-            response_text = await handle_general(user_message)
-        else:
-            response_text = "I'm not sure what you're asking."
-        return response_text
-    except Exception as e:
-        logger.error("Error in process_user_query", error=str(e))
-        return "An error occurred while processing your request."
-
-class DeviceStateManager:
-    def _init_(self) -> None:
-        self.lock = threading.Lock()
-        self.state = {
-            "ac": {"status": "off", "temperature": None},
-            "fan": {"status": "off", "speed": None},
-            "light": {"status": "off"}
-        }
-    def set_ac_on(self) -> bool:
-        with self.lock:
-            if self.state["ac"]["status"] == "on":
-                return False
-            self.state["ac"]["status"] = "on"
-            return True
-    def set_ac_off(self) -> bool:
-        with self.lock:
-            if self.state["ac"]["status"] == "off":
-                return False
-            self.state["ac"]["status"] = "off"
-            self.state["ac"]["temperature"] = None
-            return True
-    def set_ac_temperature(self, temp: int) -> (bool, str):
-        with self.lock:
-            if self.state["ac"]["status"] != "on":
-                self.state["ac"]["status"] = "on"
-                self.state["ac"]["temperature"] = temp
-                return True, f"Turning on the AC and setting temperature to {temp}°C."
-            if self.state["ac"]["temperature"] == temp:
-                return False, f"AC is already set to {temp}°C."
-            self.state["ac"]["temperature"] = temp
-            return True, f"Setting the AC temperature to {temp}°C."
-    def set_fan_on(self) -> bool:
-        with self.lock:
-            if self.state["fan"]["status"] == "on":
-                return False
-            self.state["fan"]["status"] = "on"
-            return True
-    def set_fan_off(self) -> bool:
-        with self.lock:
-            if self.state["fan"]["status"] == "off":
-                return False
-            self.state["fan"]["status"] = "off"
-            self.state["fan"]["speed"] = None
-            return True
-    def set_fan_speed(self, speed: int) -> (bool, str):
-        with self.lock:
-            if self.state["fan"]["status"] != "on":
-                return False, "Fan is not on."
-            if self.state["fan"]["speed"] == speed:
-                return False, f"Fan is already set to speed {speed}."
-            self.state["fan"]["speed"] = speed
-            return True, f"Setting the fan speed to {speed}."
-    def set_light_on(self) -> bool:
-        with self.lock:
-            if self.state["light"]["status"] == "on":
-                return False
-            self.state["light"]["status"] = "on"
-            return True
-    def set_light_off(self) -> bool:
-        with self.lock:
-            if self.state["light"]["status"] == "off":
-                return False
-            self.state["light"]["status"] = "off"
-            return True
-
-device_state_manager = DeviceStateManager()
-
-# Azure OpenAI Client Initialization for GPT
-from openai import AzureOpenAI
-openai_client = AzureOpenAI(
-    api_key=config.AZURE_OPENAI_API_KEY,
-    api_version="2024-05-01-preview",
-    azure_endpoint=config.AZURE_ENDPOINT,
-)
-
 intent_prompt = """
-Analyze the user message and classify its intent into one of the predefined categories:
+Analyze the user message and classify its intent into one of the predefined categories.
 Categories:
-1. command-query: The user wants to control the items in his home.
-    Examples:
-    - "Turn on the living room lights."
-    - "Set the thermostat to 25°C."
-    - "Dim the bedroom lights to 50%."
-
-2. general-query: The user is asking a general questions. 
-    Examples:
-    - "What is the weather today in colombo?"
-    - "What is the president of sri lanka?"
-    - "What are the best phones?"
-    - "Suggest a better restaurant in colombo 7?"
-
-Instructions:
-Classify the intent of the user's message into one of these three categories (general-query, or general-query) and respond with only the label. Do not include any additional text or explanation.
+- ac-control-on
+- ac-control-off
+- fan-control-on
+- fan-control-off
+- light-control-on
+- light-control-off
+If not recognized, respond with error.
 """
 
 general_prompt = """
-You are a SmartAura Smart Home Assistant. Your job is to respond *quickly and concisely* to user queries. Keep answers short, direct, and efficient. 
-
-### *Behavior Guidelines:*
-- *Instant Responses:* Reply *immediately* with the most relevant answer.
-- *Minimal Words:* Keep answers *short and to the point*.
-- *Casual & Friendly:* Use a natural, conversational tone.
-- *Acknowledge Greetings:* If a user greets you, reply *briefly* (e.g., "Hey!" for "Hey bot").
-- *Skip Extra Info:* Only provide details when explicitly asked.
-
----
-
-### *Examples:*
-- *User:* "Hey bot!"  
-  - *Assistant:* "Hey!"  
-- *User:* "What's the weather?"  
-  - *Assistant:* "22°C, clear skies."  
-- *User:* "Who invented the light bulb?"  
-  - *Assistant:* "Thomas Edison."  
-- *User:* "Tell me a joke."  
-  - *Assistant:* "Why don’t skeletons fight? No guts!"  
-- *User:* "How tall is the Eiffel Tower?"  
-  - *Assistant:* "330 meters."  
-
----
-
-### *Final Notes:*
-- Keep replies *short and fast*.
-- Answer in *one sentence or less*.
-- *No unnecessary details* unless the user asks for more.  
-- The goal is to be the *fastest, most efficient home assistant*.  
+Answer briefly as a smart home assistant.
 """
 
 command_prompt = """
-You are a highly intelligent and responsive Smart Home Assistant. Your primary role is to help users manage their smart home devices efficiently.
-You should only have access for the a AC, a Fan and a Light in the House.
-
-You should analyze question and classify its intent into one of the predefined categories:
-Categories:
-1. ac-control: The user wants to control the ac.
-    Examples:
-    - "Turn on the AC." 
-        - You should reply with: ac-control-on
-    - "Turn off the AC."
-        - You should reply with: ac-control-off
-    - "Change the ac temperature to 25°C."
-        - You should reply with: ac-control-25
-    else you should reply with: ac-error
-
-2. fan-control: The user wants to control the fan.
-    Examples:
-    - "Turn on the Fan." 
-        - You should reply with: fan-control-on
-    - "Turn off the Fan."
-        - You should reply with: fan-control-off
-    - "Change the fan speed to 3(Fan only have 1, 2, 3 speeds only. Otherwise you should reply with fan-error)."
-        - You should reply with: fan-control-3
-    - "Change the fan speed to 2"
-        - You should reply with: fan-control-2
-    else you should reply with: fan-error
-
-3. light-control: The user wants to control the light. 
-    Examples:
-    - "Turn on the Light." 
-        - You should reply with: light-control-on
-    - "Turn off the Light."
-        - You should reply with: light-control-off
-    else you should reply with: light-error
-
-3. no-access: If you cannot access the specific device you should reply only the label. Do not include any additional text or explanation.
-
-Classify the intent of the user's message into one of these three categories (ac-control-on, ac-control-off, ac-control-24, ac-error, 
-fan-control-on, fan-control-off, fan-control-off, fan-control-1, fan-error, light-control-on, light-control-off, light-error, or error) 
-and respond with only the label. Do not include any additional text or explanation.
+You are a smart home assistant with access only to an AC, a Fan, and a Light.
+Classify the command into one of:
+- ac-control-on, ac-control-off, ac-control-<temp>
+- fan-control-on, fan-control-off, fan-control-<speed>
+- light-control-on, light-control-off
+If not recognized, respond with error.
 """
-
 
 async def _create_completion(messages: list, **kwargs) -> str:
     default_kwargs = {
@@ -546,7 +310,7 @@ async def handle_general(user_message: str) -> str:
 async def process_user_query(user_message: str):
     try:
         intent_messages = [
-            {"role": "system", "content": intent_messages},
+            {"role": "system", "content": "Determine the intent of the following command."},
             {"role": "user", "content": user_message},
         ]
         detected_intent = (await _create_completion(intent_messages)).lower()
@@ -561,6 +325,64 @@ async def process_user_query(user_message: str):
     except Exception as e:
         logger.error("Error in process_user_query", error=str(e))
         return "An error occurred while processing your request."
+
+class DeviceStateManager:
+    def _init_(self) -> None:
+        self.state = {
+            "ac": {"status": "off", "temperature": None},
+            "fan": {"status": "off", "speed": None},
+            "light": {"status": "off"}
+        }
+    def set_ac_on(self) -> bool:
+        if self.state["ac"]["status"] == "on":
+            return False
+        self.state["ac"]["status"] = "on"
+        return True
+    def set_ac_off(self) -> bool:
+        if self.state["ac"]["status"] == "off":
+            return False
+        self.state["ac"]["status"] = "off"
+        self.state["ac"]["temperature"] = None
+        return True
+    def set_ac_temperature(self, temp: int) -> (bool, str):
+        if self.state["ac"]["status"] != "on":
+            self.state["ac"]["status"] = "on"
+            self.state["ac"]["temperature"] = temp
+            return True, f"Turning on the AC and setting temperature to {temp}°C."
+        if self.state["ac"]["temperature"] == temp:
+            return False, f"AC is already set to {temp}°C."
+        self.state["ac"]["temperature"] = temp
+        return True, f"Setting the AC temperature to {temp}°C."
+    def set_fan_on(self) -> bool:
+        if self.state["fan"]["status"] == "on":
+            return False
+        self.state["fan"]["status"] = "on"
+        return True
+    def set_fan_off(self) -> bool:
+        if self.state["fan"]["status"] == "off":
+            return False
+        self.state["fan"]["status"] = "off"
+        self.state["fan"]["speed"] = None
+        return True
+    def set_fan_speed(self, speed: int) -> (bool, str):
+        if self.state["fan"]["status"] != "on":
+            return False, "Fan is not on."
+        if self.state["fan"]["speed"] == speed:
+            return False, f"Fan is already set to speed {speed}."
+        self.state["fan"]["speed"] = speed
+        return True, f"Setting the fan speed to {speed}."
+    def set_light_on(self) -> bool:
+        if self.state["light"]["status"] == "on":
+            return False
+        self.state["light"]["status"] = "on"
+        return True
+    def set_light_off(self) -> bool:
+        if self.state["light"]["status"] == "off":
+            return False
+        self.state["light"]["status"] = "off"
+        return True
+
+device_state_manager = DeviceStateManager()
 
 # ---------------------------
 # Azure Speech Service Configuration for TTS
@@ -611,7 +433,7 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 # Run FastAPI Server
 # ---------------------------
-if __name__ == "__main__":
+if _name_ == "_main_":
     try:
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
