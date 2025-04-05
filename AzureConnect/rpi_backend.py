@@ -7,12 +7,13 @@ import adafruit_dht
 import cv2
 import base64
 import pigpio
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 import speech_recognition as sr
 import azure.cognitiveservices.speech as speechsdk
 import sys, logging, structlog
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ---------------------------
 # Logging Configuration
@@ -34,12 +35,27 @@ structlog.configure(
 logger = structlog.get_logger()
 
 # ---------------------------
+# Configuration Using pydantic_settings
+# ---------------------------
+class Config(BaseSettings):
+    AZURE_OPENAI_API_KEY: str
+    AZURE_OPENAI_DEPLOYMENT_ID: str
+    AZURE_ENDPOINT: str
+    SPEECH_KEY: str
+    SERVICE_REGION: str
+    TTS_ENDPOINT: str
+    
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+
+config = Config()
+
+# ---------------------------
 # FastAPI Initialization & CORS
 # ---------------------------
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this to your dashboard domain.
+    allow_origins=["*"],  # For production, restrict to your trusted domains.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,7 +65,7 @@ app.add_middleware(
 # Sensor & Light Control Initialization
 # ---------------------------
 
-# DHT22 sensor on GPIO27
+# Initialize DHT22 sensor on GPIO27
 dhtDevice = adafruit_dht.DHT22(board.D27)
 
 # Initialize pigpio (ensure pigpiod is running)
@@ -66,7 +82,7 @@ pi.set_pull_up_down(AIR_QUALITY_PIN, pigpio.PUD_DOWN)
 pi.set_mode(MOTION_SENSOR_PIN, pigpio.INPUT)
 pi.set_pull_up_down(MOTION_SENSOR_PIN, pigpio.PUD_DOWN)
 
-# Light Control pins
+# Light control pins
 KITCHEN_LIGHT_PIN = 22
 LIVINGROOM_AC_PIN = 23
 BEDROOM_FAN_PIN = 24
@@ -74,6 +90,11 @@ BEDROOM_FAN_PIN = 24
 for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
+
+# Global variables for light state
+kitchen_state = "off"
+livingroom_state = "off"
+bedroom_state = "off"
 
 # ---------------------------
 # Sensor Reading Function
@@ -142,60 +163,282 @@ def video_feed():
 # Light Control Endpoints
 # ---------------------------
 def set_light_state(pin: int, state: str):
-    logger.info(f"Setting pin {pin} to state '{state}'")
+    logger.info(f"[DEBUG] Setting pin {pin} to state '{state}'")
     if state.lower() == "on":
         pi.write(pin, 1)
     elif state.lower() == "off":
         pi.write(pin, 0)
     else:
         raise ValueError("Invalid state; use 'on' or 'off'.")
-    logger.info(f"Pin {pin} set to {'HIGH' if state.lower()=='on' else 'LOW'}")
+    logger.info(f"[DEBUG] Pin {pin} set to {'HIGH' if state.lower()=='on' else 'LOW'}")
 
 @app.get("/light/kitchen")
 def control_kitchen_light(state: str = Query(..., description="Light state: 'on' or 'off'")):
+    global kitchen_state
     try:
         set_light_state(KITCHEN_LIGHT_PIN, state)
-        return {"light": "kitchen", "state": state.lower()}
+        kitchen_state = state.lower()
+        # Here you could update an OLED display if desired.
+        return {"light": "kitchen", "state": kitchen_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/light/livingroom")
 def control_livingroom_ac(state: str = Query(..., description="Light state: 'on' or 'off'")):
+    global livingroom_state
     try:
         set_light_state(LIVINGROOM_AC_PIN, state)
-        return {"light": "livingroom_ac", "state": state.lower()}
+        livingroom_state = state.lower()
+        return {"light": "livingroom_ac", "state": livingroom_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/light/bedroom")
 def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' or 'off'")):
+    global bedroom_state
     try:
         set_light_state(BEDROOM_FAN_PIN, state)
-        return {"light": "bedroom_fan", "state": state.lower()}
+        bedroom_state = state.lower()
+        return {"light": "bedroom_fan", "state": bedroom_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 # ---------------------------
-# Voice Assistant Configuration
+# GPT Conversation Graph & Device State Manager
 # ---------------------------
-SPEECH_KEY = "AmewBM3Olz7oZeVnhVp2tqAdQ6wbuHGFIhTUcO1GFNP2CmAYLOn9JQQJ99BCACqBBLyXJ3w3AAAYACOGeDlD"
-SERVICE_REGION =  "southeastasia"
-TTS_ENDPOINT = "https://southeastasia.tts.speech.microsoft.com/cognitiveservices/v1"
+class ConversationGraph:
+    def _init_(self) -> None:
+        self.nodes = []
+        self.lock = threading.Lock()
+    def add_message(self, message: str, role: str) -> None:
+        with self.lock:
+            self.nodes.append({
+                "message": message,
+                "role": role,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc)
+            })
+    def get_relevant_context(self, query: str, top_n: int = 3) -> str:
+        with self.lock:
+            relevant_nodes = self.nodes[-top_n:]
+            return "\n".join([f"{node['role']}: {node['message']}" for node in relevant_nodes])
+    def clear_history(self) -> None:
+        with self.lock:
+            self.nodes.clear()
+            logger.info("Conversation history cleared.")
 
-speech_config = speechsdk.SpeechConfig(subscription=SPEECH_KEY, region=SERVICE_REGION)
-speech_config.set_property(speechsdk.PropertyId.SpeechServiceConnection_Endpoint, TTS_ENDPOINT)
+import datetime
+conversation_graph = ConversationGraph()
+
+class DeviceStateManager:
+    def _init_(self) -> None:
+        self.lock = threading.Lock()
+        self.state = {
+            "ac": {"status": "off", "temperature": None},
+            "fan": {"status": "off", "speed": None},
+            "light": {"status": "off"}
+        }
+    def set_ac_on(self) -> bool:
+        with self.lock:
+            if self.state["ac"]["status"] == "on":
+                return False
+            self.state["ac"]["status"] = "on"
+            return True
+    def set_ac_off(self) -> bool:
+        with self.lock:
+            if self.state["ac"]["status"] == "off":
+                return False
+            self.state["ac"]["status"] = "off"
+            self.state["ac"]["temperature"] = None
+            return True
+    def set_ac_temperature(self, temp: int) -> (bool, str):
+        with self.lock:
+            if self.state["ac"]["status"] != "on":
+                self.state["ac"]["status"] = "on"
+                self.state["ac"]["temperature"] = temp
+                return True, f"Turning on the AC and setting temperature to {temp}°C."
+            if self.state["ac"]["temperature"] == temp:
+                return False, f"AC is already set to {temp}°C."
+            self.state["ac"]["temperature"] = temp
+            return True, f"Setting the AC temperature to {temp}°C."
+    def set_fan_on(self) -> bool:
+        with self.lock:
+            if self.state["fan"]["status"] == "on":
+                return False
+            self.state["fan"]["status"] = "on"
+            return True
+    def set_fan_off(self) -> bool:
+        with self.lock:
+            if self.state["fan"]["status"] == "off":
+                return False
+            self.state["fan"]["status"] = "off"
+            self.state["fan"]["speed"] = None
+            return True
+    def set_fan_speed(self, speed: int) -> (bool, str):
+        with self.lock:
+            if self.state["fan"]["status"] != "on":
+                return False, "Fan is not on."
+            if self.state["fan"]["speed"] == speed:
+                return False, f"Fan is already set to speed {speed}."
+            self.state["fan"]["speed"] = speed
+            return True, f"Setting the fan speed to {speed}."
+    def set_light_on(self) -> bool:
+        with self.lock:
+            if self.state["light"]["status"] == "on":
+                return False
+            self.state["light"]["status"] = "on"
+            return True
+    def set_light_off(self) -> bool:
+        with self.lock:
+            if self.state["light"]["status"] == "off":
+                return False
+            self.state["light"]["status"] = "off"
+            return True
+
+device_state_manager = DeviceStateManager()
+
+# ---------------------------
+# Azure OpenAI Client Initialization for GPT
+# ---------------------------
+from openai import AzureOpenAI
+openai_client = AzureOpenAI(
+    api_key=config.AZURE_OPENAI_API_KEY,
+    api_version="2024-05-01-preview",
+    azure_endpoint=config.AZURE_ENDPOINT,
+)
+
+async def _create_completion(messages: list, **kwargs) -> str:
+    default_kwargs = {
+        "model": config.AZURE_OPENAI_DEPLOYMENT_ID,
+        "max_tokens": 100,
+        "temperature": 0.7,
+        "top_p": 0.95,
+    }
+    default_kwargs.update(kwargs)
+    response = await asyncio.to_thread(
+        lambda: openai_client.chat.completions.create(messages=messages, **default_kwargs)
+    )
+    return response.choices[0].message.content.strip()
+
+async def handle_commands(user_message: str) -> str:
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": f"Command: {user_message}"}
+    ]
+    command = await _create_completion(messages)
+    logger.info("Detected Command", intent=command)
+    if command == "ac-control-on":
+        if not device_state_manager.set_ac_on():
+            return "AC is already turned on."
+        return "Turning on the AC."
+    elif command == "ac-control-off":
+        if not device_state_manager.set_ac_off():
+            return "AC is already turned off."
+        return "Turning off the AC."
+    elif command.startswith("ac-control-"):
+        try:
+            ac_temp = int(command.split("-")[-1])
+            success, msg = device_state_manager.set_ac_temperature(ac_temp)
+            return msg
+        except ValueError:
+            return "Invalid temperature setting for AC."
+    elif command == "fan-control-on":
+        if not device_state_manager.set_fan_on():
+            return "Fan is already turned on."
+        return "Turning on the Fan."
+    elif command == "fan-control-off":
+        if not device_state_manager.set_fan_off():
+            return "Fan is already turned off."
+        return "Turning off the Fan."
+    elif command.startswith("fan-control-"):
+        try:
+            fan_speed = int(command.split("-")[-1])
+            if fan_speed not in [1, 2, 3]:
+                return "Invalid fan speed. Please choose between 1, 2, or 3."
+            success, msg = device_state_manager.set_fan_speed(fan_speed)
+            return msg
+        except ValueError:
+            return "Invalid fan speed setting."
+    elif command == "light-control-on":
+        if not device_state_manager.set_light_on():
+            return "Light is already turned on."
+        return "Turning on the Light."
+    elif command == "light-control-off":
+        if not device_state_manager.set_light_off():
+            return "Light is already turned off."
+        return "Turning off the Light."
+    else:
+        return "Sorry, I didn't understand your request."
+
+async def handle_general(user_message: str) -> str:
+    context = conversation_graph.get_relevant_context(user_message)
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": f"Question: {user_message}"},
+        {"role": "user", "content": f"Context: {context}"}
+    ]
+    return await _create_completion(messages)
+
+async def process_user_query(user_message: str):
+    try:
+        conversation_graph.add_message(user_message, "user")
+        intent_messages = [
+            {"role": "system", "content": "Determine the intent of the following command."},
+            {"role": "user", "content": user_message},
+        ]
+        detected_intent = (await _create_completion(intent_messages)).lower()
+        logger.info("Detected Intent", intent=detected_intent)
+        if detected_intent == "command-query":
+            response_text = await handle_commands(user_message)
+        elif detected_intent == "general-query":
+            response_text = await handle_general(user_message)
+        else:
+            response_text = "I'm not sure what you're asking."
+        conversation_graph.add_message(response_text, "assistant")
+        return response_text
+    except Exception as e:
+        logger.error("Error in process_user_query", error=str(e))
+        return "An error occurred while processing your request."
+
+# Initialize conversation graph
+class ConversationGraph:
+    def _init_(self) -> None:
+        self.nodes = []
+        self.lock = threading.Lock()
+    def add_message(self, message: str, role: str) -> None:
+        with self.lock:
+            self.nodes.append({
+                "message": message,
+                "role": role,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc)
+            })
+    def get_relevant_context(self, query: str, top_n: int = 3) -> str:
+        with self.lock:
+            relevant_nodes = self.nodes[-top_n:]
+            return "\n".join([f"{node['role']}: {node['message']}" for node in relevant_nodes])
+    def clear_history(self) -> None:
+        with self.lock:
+            self.nodes.clear()
+            logger.info("Conversation history cleared.")
+
+conversation_graph = ConversationGraph()
+
+# ---------------------------
+# Azure Speech Service Configuration for TTS
+# ---------------------------
+speech_config = speechsdk.SpeechConfig(subscription=config.SPEECH_KEY, region=config.SERVICE_REGION)
+speech_config.set_property(speechsdk.PropertyId.SpeechServiceConnection_Endpoint, config.TTS_ENDPOINT)
 speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
 audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
 speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
 
 def recognize_speech(timeout=5):
-    r = sr.Recognizer()
+    recognizer = sr.Recognizer()
     with sr.Microphone() as source:
         print("Listening...")
-        r.adjust_for_ambient_noise(source)
+        recognizer.adjust_for_ambient_noise(source)
         try:
-            audio = r.listen(source, timeout=timeout)
-            text = r.recognize_google(audio)
+            audio = recognizer.listen(source, timeout=timeout)
+            text = recognizer.recognize_google(audio)
             logger.info("Recognized speech", text=text)
             return text
         except Exception as e:
@@ -215,17 +458,20 @@ async def voice_assistant_loop():
         print("Voice assistant waiting for input...")
         user_text = recognize_speech(timeout=5)
         if user_text:
-            response = f"You said: {user_text}"
+            response = await process_user_query(user_text)
+            logger.info("Assistant Response", response=response)
             speak_text(response)
         await asyncio.sleep(1)
 
 def start_voice_assistant():
     asyncio.run(voice_assistant_loop())
 
-# Start voice assistant in a background thread
 threading.Thread(target=start_voice_assistant, daemon=True).start()
 
-if __name__ == "__main__":
+# ---------------------------
+# Run FastAPI Server
+# ---------------------------
+if _name_ == "_main_":
     try:
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
