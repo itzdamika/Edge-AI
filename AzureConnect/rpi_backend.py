@@ -243,7 +243,6 @@ You are a SmartAura Smart Home Assistant. Your job is to respond quickly and con
 - Skip Extra Info: Only provide details when explicitly asked.
 
 ---
-
 ### Examples:
 - User: "Hey bot!"  
   - Assistant: "Hey!"  
@@ -257,7 +256,6 @@ You are a SmartAura Smart Home Assistant. Your job is to respond quickly and con
   - Assistant: "330 meters."  
 
 ---
-
 ### Final Notes:
 - Keep replies short and fast.
 - Answer in one sentence or less.
@@ -361,12 +359,16 @@ async def handle_commands(user_message: str) -> str:
         except ValueError:
             return "Invalid fan speed setting."
     elif command == "light-control-on":
+        # CHANGED: physically toggle the light pin here
         if not device_state_manager.set_light_on():
             return "Light is already turned on."
+        set_light_state(KITCHEN_LIGHT_PIN, "on")  # physically switch on
         return "Turning on the Light."
     elif command == "light-control-off":
+        # CHANGED: physically toggle the light pin here
         if not device_state_manager.set_light_off():
             return "Light is already turned off."
+        set_light_state(KITCHEN_LIGHT_PIN, "off")  # physically switch off
         return "Turning off the Light."
     else:
         return "Sorry, I didn't understand your request."
@@ -381,7 +383,7 @@ async def handle_general(user_message: str) -> str:
 async def process_user_query(user_message: str):
     try:
         intent_messages = [
-            {"role": "system", "content": "Determine the intent of the following command."},
+            {"role": "system", "content": intent_prompt},
             {"role": "user", "content": user_message},
         ]
         
@@ -398,8 +400,9 @@ async def process_user_query(user_message: str):
         logger.error("Error in process_user_query", error=str(e))
         return "An error occurred while processing your request."
 
+# FIXED: constructor from init to _init_
 class DeviceStateManager:
-    def __init__(self) -> None:
+    def _init_(self) -> None:
         self.state = {
             "ac": {"status": "off", "temperature": None},
             "fan": {"status": "off", "speed": None},
@@ -505,7 +508,7 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 # Run FastAPI Server
 # ---------------------------
-if __name__ == "__main__":
+if _name_ == "_main_":
     try:
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
