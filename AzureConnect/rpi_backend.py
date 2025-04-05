@@ -50,31 +50,6 @@ class Config(BaseSettings):
 config = Config()
 
 # ---------------------------
-# Conversation Graph (Define early so it's ready for use)
-# ---------------------------
-class ConversationGraph:
-    def _init_(self) -> None:
-        self.nodes = []
-        self.lock = threading.Lock()
-    def add_message(self, message: str, role: str) -> None:
-        with self.lock:
-            self.nodes.append({
-                "message": message,
-                "role": role,
-                "timestamp": datetime.datetime.now(datetime.timezone.utc)
-            })
-    def get_relevant_context(self, query: str, top_n: int = 3) -> str:
-        with self.lock:
-            relevant_nodes = self.nodes[-top_n:]
-            return "\n".join([f"{node['role']}: {node['message']}" for node in relevant_nodes])
-    def clear_history(self) -> None:
-        with self.lock:
-            self.nodes.clear()
-            logger.info("Conversation history cleared.")
-
-conversation_graph = ConversationGraph()
-
-# ---------------------------
 # FastAPI Initialization & CORS
 # ---------------------------
 app = FastAPI()
@@ -301,17 +276,14 @@ async def handle_commands(user_message: str) -> str:
         return "Sorry, I didn't understand your request."
 
 async def handle_general(user_message: str) -> str:
-    context = conversation_graph.get_relevant_context(user_message)
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": f"Question: {user_message}"},
-        {"role": "user", "content": f"Context: {context}"}
+        {"role": "user", "content": f"Question: {user_message}"}
     ]
     return await _create_completion(messages)
 
 async def process_user_query(user_message: str):
     try:
-        conversation_graph.add_message(user_message, "user")
         intent_messages = [
             {"role": "system", "content": "Determine the intent of the following command."},
             {"role": "user", "content": user_message},
@@ -324,7 +296,6 @@ async def process_user_query(user_message: str):
             response_text = await handle_general(user_message)
         else:
             response_text = "I'm not sure what you're asking."
-        conversation_graph.add_message(response_text, "assistant")
         return response_text
     except Exception as e:
         logger.error("Error in process_user_query", error=str(e))
@@ -469,17 +440,14 @@ async def handle_commands(user_message: str) -> str:
         return "Sorry, I didn't understand your request."
 
 async def handle_general(user_message: str) -> str:
-    context = conversation_graph.get_relevant_context(user_message)
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": f"Question: {user_message}"},
-        {"role": "user", "content": f"Context: {context}"}
+        {"role": "user", "content": f"Question: {user_message}"}
     ]
     return await _create_completion(messages)
 
 async def process_user_query(user_message: str):
     try:
-        conversation_graph.add_message(user_message, "user")
         intent_messages = [
             {"role": "system", "content": "Determine the intent of the following command."},
             {"role": "user", "content": user_message},
@@ -492,7 +460,6 @@ async def process_user_query(user_message: str):
             response_text = await handle_general(user_message)
         else:
             response_text = "I'm not sure what you're asking."
-        conversation_graph.add_message(response_text, "assistant")
         return response_text
     except Exception as e:
         logger.error("Error in process_user_query", error=str(e))
