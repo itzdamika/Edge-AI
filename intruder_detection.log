@@ -1,0 +1,117 @@
+2025-04-06 18:22:19,711:INFO:Starting intruder detection system.
+2025-04-06 18:22:19,712:INFO:GPIO not available — running in mock mode.
+2025-04-06 18:22:19,714:INFO:Running without physical GPIO.
+2025-04-06 18:22:20,670:INFO:Loaded 1 face embeddings
+2025-04-06 18:22:25,758:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2277
+2025-04-06 18:22:25,760:INFO:[+] Recognized: Gaindu
+2025-04-06 18:22:25,760:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:22:25,760:INFO:Recognition cycle took 0.0895 seconds
+2025-04-06 18:22:30,772:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2305
+2025-04-06 18:22:30,773:INFO:[+] Recognized: Gaindu
+2025-04-06 18:22:30,773:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:22:30,777:INFO:Recognition cycle took 0.0922 seconds
+2025-04-06 18:22:31,350:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2132
+2025-04-06 18:22:31,351:INFO:[+] Recognized: Gaindu
+2025-04-06 18:22:31,351:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:22:31,351:INFO:Recognition cycle took 0.0815 seconds
+2025-04-06 18:22:36,371:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.1929
+2025-04-06 18:22:36,372:INFO:[+] Recognized: Gaindu
+2025-04-06 18:22:36,372:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:22:36,372:INFO:Recognition cycle took 0.0939 seconds
+2025-04-06 18:22:41,411:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2050
+2025-04-06 18:22:41,412:INFO:[+] Recognized: Gaindu
+2025-04-06 18:22:41,412:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:22:41,412:INFO:Recognition cycle took 0.1236 seconds
+2025-04-06 18:22:46,402:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2497
+2025-04-06 18:22:46,403:INFO:[+] Recognized: Gaindu
+2025-04-06 18:22:46,403:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:22:46,403:INFO:Recognition cycle took 0.0795 seconds
+2025-04-06 18:22:50,731:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2546
+2025-04-06 18:22:50,731:INFO:[+] Recognized: Gaindu
+2025-04-06 18:22:50,732:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:22:50,732:INFO:Recognition cycle took 0.0830 seconds
+2025-04-06 18:22:55,755:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2204
+2025-04-06 18:22:55,755:INFO:[+] Recognized: Gaindu
+2025-04-06 18:22:55,755:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:22:55,755:INFO:Recognition cycle took 0.0832 seconds
+2025-04-06 18:24:17,865:INFO:Starting intruder detection system.
+2025-04-06 18:24:17,867:INFO:GPIO not available — running in mock mode.
+2025-04-06 18:24:17,867:INFO:Running without physical GPIO.
+2025-04-06 18:24:18,225:INFO:Loaded 1 face embeddings
+2025-04-06 18:24:21,331:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.3010
+2025-04-06 18:24:21,332:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:21,332:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:21,332:INFO:Recognition cycle took 0.0923 seconds
+2025-04-06 18:24:21,517:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.4878
+2025-04-06 18:24:21,518:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:21,518:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:21,518:INFO:Recognition cycle took 0.0792 seconds
+2025-04-06 18:24:21,702:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.3390
+2025-04-06 18:24:21,703:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:21,703:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:21,703:INFO:Recognition cycle took 0.0842 seconds
+2025-04-06 18:24:21,878:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2408
+2025-04-06 18:24:21,879:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:21,879:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:21,879:INFO:Recognition cycle took 0.0840 seconds
+2025-04-06 18:24:22,055:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.1730
+2025-04-06 18:24:22,055:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:22,055:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:22,055:INFO:Recognition cycle took 0.0801 seconds
+2025-04-06 18:24:22,222:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2484
+2025-04-06 18:24:22,222:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:22,223:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:22,223:INFO:Recognition cycle took 0.0812 seconds
+2025-04-06 18:24:22,400:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2345
+2025-04-06 18:24:22,401:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:22,401:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:22,401:INFO:Recognition cycle took 0.0892 seconds
+2025-04-06 18:24:22,584:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2310
+2025-04-06 18:24:22,584:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:22,584:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:22,584:INFO:Recognition cycle took 0.0811 seconds
+2025-04-06 18:24:23,635:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.1661
+2025-04-06 18:24:23,636:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:23,636:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:23,636:INFO:Recognition cycle took 0.0762 seconds
+2025-04-06 18:24:31,318:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2519
+2025-04-06 18:24:31,318:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:31,318:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:31,318:INFO:Recognition cycle took 0.0812 seconds
+2025-04-06 18:24:31,492:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2473
+2025-04-06 18:24:31,492:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:31,492:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:31,492:INFO:Recognition cycle took 0.0824 seconds
+2025-04-06 18:24:31,680:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.1628
+2025-04-06 18:24:31,680:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:31,680:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:31,680:INFO:Recognition cycle took 0.0976 seconds
+2025-04-06 18:24:33,423:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.4716
+2025-04-06 18:24:33,423:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:33,423:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:33,425:INFO:Recognition cycle took 0.0889 seconds
+2025-04-06 18:24:33,590:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.5623
+2025-04-06 18:24:33,591:WARNING:[!] ALERT: Unrecognized face!
+2025-04-06 18:24:33,591:INFO:[MOCK] Red LED ON
+2025-04-06 18:24:33,591:INFO:Recognition cycle took 0.0759 seconds
+2025-04-06 18:24:33,754:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2819
+2025-04-06 18:24:33,754:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:33,754:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:33,754:INFO:Recognition cycle took 0.0734 seconds
+2025-04-06 18:24:33,940:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.3948
+2025-04-06 18:24:33,941:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:33,941:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:33,941:INFO:Recognition cycle took 0.0774 seconds
+2025-04-06 18:24:34,107:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.4337
+2025-04-06 18:24:34,108:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:34,108:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:34,108:INFO:Recognition cycle took 0.0705 seconds
+2025-04-06 18:24:34,286:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.2872
+2025-04-06 18:24:34,287:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:34,287:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:34,287:INFO:Recognition cycle took 0.0820 seconds
+2025-04-06 18:24:34,467:INFO:\u2192 Closest match: Gaindu, Cosine distance: 0.1977
+2025-04-06 18:24:34,467:INFO:[+] Recognized: Gaindu
+2025-04-06 18:24:34,467:INFO:[MOCK] Green LED ON for Gaindu
+2025-04-06 18:24:34,467:INFO:Recognition cycle took 0.0799 seconds
+2025-04-06 18:24:44,102:INFO:KeyboardInterrupt received; shutting down.
