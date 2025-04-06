@@ -27,40 +27,40 @@ while True:
 
     height, width, _ = frame.shape
 
-    # Preprocess image
-    input_img = cv2.resize(frame, tuple(input_shape))
-    input_img = input_img.astype(np.float32) / 255.0
-    input_img = np.expand_dims(input_img, axis=0)
+    # Preprocess input image
+    resized = cv2.resize(frame, tuple(input_shape))
+    input_tensor = resized.astype(np.float32) / 255.0 
+    input_tensor = np.expand_dims(input_tensor, axis=0)  
 
     # Run inference
-    interpreter.set_tensor(input_details[0]['index'], input_img)
+    interpreter.set_tensor(input_details[0]['index'], input_tensor)
     interpreter.invoke()
 
-    # Extract outputs
-    boxes = interpreter.get_tensor(output_details[0]['index'])[0]
-    classes = interpreter.get_tensor(output_details[1]['index'])[0]
-    scores = interpreter.get_tensor(output_details[2]['index'])[0]
+    output_data = interpreter.get_tensor(output_details[0]['index'])[0]  
 
-    # Draw detections
-    for i in range(len(scores)):
-        if scores[i] > 0.5:
-            ymin, xmin, ymax, xmax = boxes[i]
-            class_id = int(classes[i])
-            label = labels[class_id]
+    boxes = output_data[:4]  
+    confs = output_data[4]    
 
-            # Convert box to pixel coordinates
-            (left, top, right, bottom) = (
-                int(xmin * width),
-                int(ymin * height),
-                int(xmax * width),
-                int(ymax * height),
-            )
+    for i in range(confs.shape[0]):
+        confidence = confs[i]
+        if confidence > 0.5:
+            cx, cy, w, h = boxes[0][i], boxes[1][i], boxes[2][i], boxes[3][i]
 
-            cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-            cv2.putText(frame, f"{label} {scores[i]:.2f}", (left, top - 10),
+            # Convert to pixel coordinates
+            x1 = int((cx - w / 2) * width)
+            y1 = int((cy - h / 2) * height)
+            x2 = int((cx + w / 2) * width)
+            y2 = int((cy + h / 2) * height)
+
+            # Draw bounding box and label
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            label = f"{labels[0]} {confidence:.2f}"
+            cv2.putText(frame, label, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
+    # Show output
     cv2.imshow("YOLOv11 Nano - Persona Detection", frame)
+
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
