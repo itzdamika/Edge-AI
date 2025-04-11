@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -14,9 +14,7 @@ import {
   Thermometer,
   Droplets,
   Wind,
-  X,
-  Power,
-  Zap
+  X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { SensorData } from '../types';
