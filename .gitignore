@@ -6,6 +6,7 @@ split_dataset/
 # Ignore virtual environments
 /venv/
 env/
+myenv/
 
 yolov8n.pt
 yolo11n.pt
