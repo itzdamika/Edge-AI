@@ -1,22 +1,16 @@
 import cv2
 import numpy as np
-import tflite_runtime.interpreter as tflite
+import onnxruntime as ort
+
+# Load ONNX model
+session = ort.InferenceSession("yolo11n_int8.onnx")
+input_name = session.get_inputs()[0].name
+input_shape = session.get_inputs()[0].shape
+input_height, input_width = input_shape[2], input_shape[3]
 
 # Load labels
 with open('labels.txt', 'r') as f:
     labels = [line.strip() for line in f.readlines()]
-
-# Load model
-interpreter = tflite.Interpreter(model_path="best_float32.tflite")
-interpreter.allocate_tensors()
-
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
-input_shape = input_details[0]['shape'][1:3] 
-
-print("Output details:")
-for i, detail in enumerate(output_details):
-    print(f"Output{i}:{detail}")
 
 cap = cv2.VideoCapture(0)
 
@@ -25,41 +19,36 @@ while True:
     if not ret:
         break
 
-    height, width, _ = frame.shape
+    orig_h, orig_w, _ = frame.shape
 
-    # Preprocess input image
-    resized = cv2.resize(frame, tuple(input_shape))
-    input_tensor = resized.astype(np.float32) / 255.0 
-    input_tensor = np.expand_dims(input_tensor, axis=0)  
+    # Preprocess image
+    img = cv2.resize(frame, (input_width, input_height))
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = img.transpose(2, 0, 1)  
+    img = img.astype(np.float32) / 255.0
+    img = np.expand_dims(img, axis=0)
 
     # Run inference
-    interpreter.set_tensor(input_details[0]['index'], input_tensor)
-    interpreter.invoke()
+    outputs = session.run(None, {input_name: img})
 
-    output_data = interpreter.get_tensor(output_details[0]['index'])[0]  
+    predictions = outputs[0] 
 
-    boxes = output_data[:4]  
-    confs = output_data[4]    
+    for pred in predictions:
+        x1, y1, x2, y2, score, cls_id = pred
+        if score < 0.5:
+            continue
 
-    for i in range(confs.shape[0]):
-        confidence = confs[i]
-        if confidence > 0.5:
-            cx, cy, w, h = boxes[0][i], boxes[1][i], boxes[2][i], boxes[3][i]
+        x1 = int(x1 * orig_w)
+        y1 = int(y1 * orig_h)
+        x2 = int(x2 * orig_w)
+        y2 = int(y2 * orig_h)
 
-            # Convert to pixel coordinates
-            x1 = int((cx - w / 2) * width)
-            y1 = int((cy - h / 2) * height)
-            x2 = int((cx + w / 2) * width)
-            y2 = int((cy + h / 2) * height)
+        label = f"{labels[int(cls_id)]} {score:.2f}"
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(frame, label, (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-            # Draw bounding box and label
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            label = f"{labels[0]} {confidence:.2f}"
-            cv2.putText(frame, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-    # Show output
-    cv2.imshow("YOLOv11 Nano - Persona Detection", frame)
+    cv2.imshow("YOLOv11n - ONNX Inference", frame)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
