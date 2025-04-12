@@ -509,14 +509,31 @@ def speak_text(text: str):
         print("Speech synthesis error:", result.cancellation_details)
 
 async def voice_assistant_loop():
+    state = "idle"
+    last_command_time = None
+
     while True:
-        print("Voice assistant waiting for input...")
-        user_text = recognize_speech(timeout=5)
-        if user_text:
-            response = await process_user_query(user_text)
-            logger.info("Assistant Response", response=response)
-            speak_text(response)
-        await asyncio.sleep(1)
+        if state == "idle":
+            print("Voice assistant in idle mode. Waiting for 'Hello Assistant'...")
+            user_text = recognize_speech(timeout=5)
+            if user_text and "hello assistant" in user_text.lower():
+                speak_text("Hello, how can I help you?")
+                state = "active"
+                last_command_time = time.time()
+            await asyncio.sleep(1)
+        elif state == "active":
+            user_text = recognize_speech(timeout=5)
+            if user_text:
+                last_command_time = time.time()
+                response = await process_user_query(user_text)
+                logger.info("Assistant Response", response=response)
+                speak_text(response)
+            else:
+                if time.time() - last_command_time > 30:
+                    speak_text("Going idle.")
+                    state = "idle"
+            await asyncio.sleep(1)
+
 
 def start_voice_assistant():
     asyncio.run(voice_assistant_loop())
