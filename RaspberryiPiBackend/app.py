@@ -20,6 +20,91 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel
 import numpy as np
 
+# ---------------------------
+# Face Recognition Imports & Setup
+# ---------------------------
+import torch
+from facenet_pytorch import MTCNN, InceptionResnetV1
+from torchvision import transforms
+from scipy.spatial.distance import cosine
+import os
+import gc
+
+embeddings_dir = "face_embeddings"  # Folder containing saved .npy embeddings
+threshold = 0.5  # Cosine similarity threshold
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+mtcnn = MTCNN(keep_all=True, device=device)
+model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
+preprocess = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((160, 160)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+])
+
+# Load saved embeddings into a dictionary {name: embedding}
+saved_embeddings = {}
+if os.path.exists(embeddings_dir):
+    for filename in os.listdir(embeddings_dir):
+        if filename.endswith('.npy'):
+            name = os.path.splitext(filename)[0]
+            path = os.path.join(embeddings_dir, filename)
+            saved_embeddings[name] = np.load(path)
+logging.info(f"Loaded {len(saved_embeddings)} face embeddings.")
+
+def preprocess_face(face_crop):
+    """Resize and preprocess a face crop for recognition."""
+    face_resized = cv2.resize(face_crop, (160, 160))
+    face_tensor = preprocess(face_resized).unsqueeze(0)
+    return face_tensor
+
+def recognize_known_face():
+    """
+    Capture one frame from the webcam, detect faces via MTCNN,
+    then run the InceptionResnetV1 model to get an embedding and compare
+    with saved embeddings using cosine similarity.
+    Returns a tuple (recognized_name, distance). If no known face is detected,
+    recognized_name will be "Unknown".
+    """
+    cap = cv2.VideoCapture(0)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        return "Unknown", None
+    boxes, probs = mtcnn.detect(frame, landmarks=False)
+    if boxes is None or len(boxes) == 0:
+        return "Unknown", None
+    recognized_name = "Unknown"
+    min_distance = float('inf')
+    # Process each detected face
+    for box in boxes:
+        x1, y1, x2, y2 = [int(coord) for coord in box]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
+        if x1 < x2 and y1 < y2:
+            face_crop = frame[y1:y2, x1:x2]
+            if face_crop.size > 0:
+                try:
+                    face_tensor = preprocess_face(face_crop)
+                    with torch.no_grad():
+                        embedding = model(face_tensor.to(device)).detach().cpu().numpy().flatten()
+                    # Compare embedding with each saved embedding
+                    for name, saved_embedding in saved_embeddings.items():
+                        distance = cosine(embedding, saved_embedding.flatten())
+                        if distance < min_distance:
+                            min_distance = distance
+                            recognized_name = name
+                except Exception as e:
+                    logging.error(f"Error in face recognition: {e}")
+    if min_distance < threshold:
+        return recognized_name, min_distance
+    else:
+        return "Unknown", min_distance
+
+# ---------------------------
+# Pydantic Model & Config
+# ---------------------------
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -74,40 +159,28 @@ app.add_middleware(
 # ---------------------------
 # Sensor & Light Control Initialization
 # ---------------------------
-# DHT22 sensor on GPIO27
 dhtDevice = adafruit_dht.DHT22(board.D27)
-
-# Initialize pigpio (ensure pigpiod is running)
 pi = pigpio.pi()
 if not pi.connected:
     raise SystemExit("Could not connect to pigpio daemon. Start it with 'sudo systemctl start pigpiod'.")
-
-# Digital sensor pins
 AIR_QUALITY_PIN = 18
 MOTION_SENSOR_PIN = 17
-
 pi.set_mode(AIR_QUALITY_PIN, pigpio.INPUT)
 pi.set_pull_up_down(AIR_QUALITY_PIN, pigpio.PUD_DOWN)
 pi.set_mode(MOTION_SENSOR_PIN, pigpio.INPUT)
 pi.set_pull_up_down(MOTION_SENSOR_PIN, pigpio.PUD_DOWN)
-
-# Light control pins
 KITCHEN_LIGHT_PIN = 22
 LIVINGROOM_AC_PIN = 23
 BEDROOM_FAN_PIN = 24
-
 for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
 
-# Global state variables for on/off
 kitchen_state = "off"
-livingroom_state = "off"  # for AC on/off
-bedroom_state = "off"     # for Fan on/off
-
-# NEW: AC Temperature and Fan Speed variables
-livingroom_ac_temp = 24   # will be reset to 16 when AC is turned on
-bedroom_fan_speed = 1     # will be reset to 1 when Fan is turned on
+livingroom_state = "off"
+bedroom_state = "off"
+livingroom_ac_temp = 24
+bedroom_fan_speed = 1
 
 # ---------------------------
 # I2C and OLED Initialization
@@ -120,14 +193,12 @@ display.show()
 def show_welcome_message():
     display.fill(0)
     welcome_text = "SMART AURA"
-    # Center the text approximately (adjust if needed)
     display.text(welcome_text, 34, 12, 1)
     display.show()
     time.sleep(5)
     update_display()
 
 def update_display():
-    """Update the OLED display with the current states of Light, AC, and Fan."""
     display.fill(0)
     display.text(f"Light: {kitchen_state.upper()}", 0, 0, 1)
     if livingroom_state.lower() == "on":
@@ -140,11 +211,10 @@ def update_display():
         display.text("Fan: OFF", 0, 20, 1)
     display.show()
 
-# Start welcome message in a separate thread
 threading.Thread(target=show_welcome_message, daemon=True).start()
 
 # ---------------------------
-# TFLite Occupant Detection Model Initialization
+# TFLite Occupant Detection (existing function remains available)
 # ---------------------------
 import tflite_runtime.interpreter as tflite
 occupant_interpreter = tflite.Interpreter(model_path="best_float16.tflite")
@@ -154,10 +224,6 @@ occupant_output_details = occupant_interpreter.get_output_details()
 occupant_input_shape = occupant_input_details[0]['shape'][1:3]
 
 def detect_person():
-    """
-    Capture a frame from the webcam, run the tflite model,
-    and return True if a person is detected (confidence > 0.5), else False.
-    """
     cap = cv2.VideoCapture(0)
     ret, frame = cap.read()
     cap.release()
@@ -179,17 +245,13 @@ def detect_person():
     return False
 
 # ---------------------------
-# Log Persistence (System and Voice Logs)
+# Log Persistence
 # ---------------------------
 systemLogs = []
 voiceLogs = []
 
 def log_system(message: str):
-    """Store a system log entry and append it to file."""
-    log_entry = {
-        "timestamp": time.time(),
-        "message": message
-    }
+    log_entry = {"timestamp": time.time(), "message": message}
     systemLogs.append(log_entry)
     if len(systemLogs) > 200:
         systemLogs.pop(0)
@@ -197,12 +259,7 @@ def log_system(message: str):
         f.write(json.dumps(log_entry) + "\n")
 
 def log_voice(user: str, assistant: str):
-    """Store a voice log entry and append it to file."""
-    log_entry = {
-        "timestamp": time.time(),
-        "user": user,
-        "assistant": assistant
-    }
+    log_entry = {"timestamp": time.time(), "user": user, "assistant": assistant}
     voiceLogs.append(log_entry)
     if len(voiceLogs) > 200:
         voiceLogs.pop(0)
@@ -211,7 +268,6 @@ def log_voice(user: str, assistant: str):
 
 @app.get("/logs")
 def get_logs():
-    """Return all system logs (live & past) from the persisted file."""
     all_logs = []
     try:
         with open("system_logs.txt", "r") as f:
@@ -224,7 +280,6 @@ def get_logs():
 
 @app.get("/voicelogs")
 def get_voice_logs():
-    """Return all voice logs (live & past) from the persisted file."""
     all_logs = []
     try:
         with open("voice_logs.txt", "r") as f:
@@ -270,21 +325,18 @@ def read_sensors():
             logger.error("DHT22 error", error=str(e))
             data['temperature'] = None
             data['humidity'] = None
-
     try:
         aq_val = pi.read(AIR_QUALITY_PIN)
         data['air_quality'] = "Poor" if aq_val == 1 else "Good"
     except Exception as e:
         logger.error("Air quality sensor error", error=str(e))
         data['air_quality'] = None
-
     try:
         motion_val = pi.read(MOTION_SENSOR_PIN)
         data['motion'] = True if motion_val == 1 else False
     except Exception as e:
         logger.error("Motion sensor error", error=str(e))
         data['motion'] = None
-
     data['timestamp'] = time.time()
     return data
 
@@ -315,10 +367,8 @@ def generate_frames():
         if not ret:
             continue
         frame_bytes = buffer.tobytes()
-        yield (
-            b'--frame\r\n'
-            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'
-        )
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         time.sleep(0.1)
     cap.release()
 
@@ -386,19 +436,9 @@ def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' o
 @app.post("/login")
 def login(request: LoginRequest):
     if request.username == "admin" and request.password == "admin123":
-        return {
-            "id": "1",
-            "username": "admin",
-            "password": "admin123",
-            "role": "admin"
-        }
+        return {"id": "1", "username": "admin", "password": "admin123", "role": "admin"}
     elif request.username == "guest" and request.password == "guest123":
-        return {
-            "id": "2",
-            "username": "guest",
-            "password": "guest123",
-            "role": "guest"
-        }
+        return {"id": "2", "username": "guest", "password": "guest123", "role": "guest"}
     else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -499,8 +539,6 @@ async def _create_completion(messages: list, **kwargs) -> str:
 
 async def handle_commands(user_message: str) -> str:
     global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed
-    # Always check if the voice input contains the "leaving" command,
-    # regardless of assistant state.
     lowered = user_message.lower()
     if "i'm leaving" in lowered or "i am leaving" in lowered or "im leaving" in lowered:
         set_light_state(KITCHEN_LIGHT_PIN, "off")
@@ -533,7 +571,7 @@ async def handle_commands(user_message: str) -> str:
     elif command == "ac-on":
         set_light_state(LIVINGROOM_AC_PIN, "on")
         livingroom_state = "on"
-        livingroom_ac_temp = 16  # default when turning on
+        livingroom_ac_temp = 16
         update_display()
         log_system("AC turned ON with default temperature 16°C")
         return "Turning on the AC with default temperature 16°C."
@@ -557,7 +595,7 @@ async def handle_commands(user_message: str) -> str:
     elif command == "fan-on":
         set_light_state(BEDROOM_FAN_PIN, "on")
         bedroom_state = "on"
-        bedroom_fan_speed = 1  # default when turning on
+        bedroom_fan_speed = 1
         update_display()
         log_system("Fan turned ON with default speed 1")
         return "Turning on the fan with default speed 1."
@@ -611,11 +649,7 @@ async def process_user_query(user_message: str):
 
 class DeviceStateManager:
     def init(self) -> None:
-        self.state = {
-            "kitchen": "off",
-            "ac": "off",
-            "fan": "off"
-        }
+        self.state = {"kitchen": "off", "ac": "off", "fan": "off"}
 
 device_state_manager = DeviceStateManager()
 
@@ -656,37 +690,29 @@ def speak_text(text: str):
 
 async def voice_assistant_loop():
     """
-    Continuously listen for commands.
-    Always check for the "leaving" command, even if the assistant is idle.
-    If the recognized phrase contains "hello assistant", switch to active mode.
-    In active mode, process commands normally.
+    Continuously listen for voice commands.
+    Always check for 'leaving' command even when idle.
+    Also check for 'hello assistant' to activate commands.
     """
     state = "idle"
     last_command_time = time.time()
     while True:
-        # Always listen for voice input
         user_text = recognize_speech(timeout=5)
         if user_text:
             lowered = user_text.lower()
-            # Check for "leaving" command irrespective of state
             if ("i'm leaving" in lowered or "i am leaving" in lowered or "im leaving" in lowered):
-                # Process leaving command immediately
                 response = await handle_commands(user_text)
                 speak_text(response)
-                # Also, reset state to idle after processing
                 state = "idle"
                 last_command_time = time.time()
-            # Else, if idle check for wake word:
             elif state == "idle" and "hello assistant" in lowered:
                 speak_text("Hello, how can I help you?")
                 state = "active"
                 last_command_time = time.time()
-            # If in active state, process any command
             elif state == "active":
                 last_command_time = time.time()
                 response = await process_user_query(user_text)
                 speak_text(response)
-            # If no command for 30 seconds in active mode, go back to idle.
             if state == "active" and (time.time() - last_command_time > 30):
                 speak_text("Going idle.")
                 state = "idle"
@@ -702,9 +728,10 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 def automation_controller():
     """
-    When the PIR sensor indicates occupancy, run the TFLite occupant detection model.
-    Log PIR and camera detections.
-    If both the motion sensor and the model detect a person, automatically adjust devices.
+    When the PIR sensor indicates occupancy, run the face recognition.
+    Only if a known face is detected will the system automation run.
+    Otherwise, log "Unknown face detected."
+    Also log PIR sensor and camera detections.
     Logic:
       - If current time is after 6 PM or before 6 AM, turn on the kitchen light.
       - Based on ambient temperature:
@@ -717,10 +744,11 @@ def automation_controller():
         motion = latest_data.get('motion', False)
         if motion:
             log_system("PIR sensor: Occupant detected.")
-            if detect_person():
-                log_system("Camera: Occupant detected.")
+            # Instead of using TFLite detection, now use face recognition to obtain a name.
+            name, dist = recognize_known_face()
+            if name != "Unknown":
+                log_system(f"{name} is detected.")
                 now = datetime.datetime.now()
-                # Turn on kitchen light at nighttime
                 if now.hour >= 18 or now.hour < 6:
                     if kitchen_state.lower() != "on":
                         set_light_state(KITCHEN_LIGHT_PIN, "on")
@@ -757,11 +785,12 @@ def automation_controller():
                             bedroom_state = "off"
                         log_system("Automated: Comfortable temperature detected. AC and Fan turned OFF.")
                     update_display()
-                time.sleep(60)
+                time.sleep(20)  # reduced wait time before next check
             else:
+                log_system("Unknown face detected.")
                 time.sleep(5)
         else:
-            time.sleep(5)
+            time.sleep(2)
 
 threading.Thread(target=automation_controller, daemon=True).start()
 
