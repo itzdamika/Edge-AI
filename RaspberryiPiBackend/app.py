@@ -106,8 +106,8 @@ livingroom_state = "off"  # for AC on/off
 bedroom_state = "off"     # for Fan on/off
 
 # NEW: AC Temperature and Fan Speed variables
-livingroom_ac_temp = 24   # will be reset to 16 when AC is turned ON
-bedroom_fan_speed = 1     # will be reset to 1 when Fan is turned ON
+livingroom_ac_temp = 24   # will be reset to 16 when AC is turned on
+bedroom_fan_speed = 1     # will be reset to 1 when Fan is turned on
 
 # ---------------------------
 # I2C and OLED Initialization
@@ -120,7 +120,7 @@ display.show()
 def show_welcome_message():
     display.fill(0)
     welcome_text = "SMART AURA"
-    # Center the text approximately; adjust as needed for your OLED
+    # Center the text approximately (adjust if needed)
     display.text(welcome_text, 34, 12, 1)
     display.show()
     time.sleep(5)
@@ -156,7 +156,7 @@ occupant_input_shape = occupant_input_details[0]['shape'][1:3]
 def detect_person():
     """
     Capture a frame from the webcam, run the tflite model,
-    and return True if a person is detected (confidence > 0.5).
+    and return True if a person is detected (confidence > 0.5), else False.
     """
     cap = cv2.VideoCapture(0)
     ret, frame = cap.read()
@@ -499,8 +499,10 @@ async def _create_completion(messages: list, **kwargs) -> str:
 
 async def handle_commands(user_message: str) -> str:
     global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed
-    # Special check for "I'm leaving" command:
-    if "i'm leaving" in user_message.lower() or "im leaving" in user_message.lower():
+    # Always check if the voice input contains the "leaving" command,
+    # regardless of assistant state.
+    lowered = user_message.lower()
+    if "i'm leaving" in lowered or "i am leaving" in lowered or "im leaving" in lowered:
         set_light_state(KITCHEN_LIGHT_PIN, "off")
         set_light_state(LIVINGROOM_AC_PIN, "off")
         set_light_state(BEDROOM_FAN_PIN, "off")
@@ -653,29 +655,42 @@ def speak_text(text: str):
         print("Speech synthesis error:", result.cancellation_details)
 
 async def voice_assistant_loop():
+    """
+    Continuously listen for commands.
+    Always check for the "leaving" command, even if the assistant is idle.
+    If the recognized phrase contains "hello assistant", switch to active mode.
+    In active mode, process commands normally.
+    """
     state = "idle"
-    last_command_time = None
+    last_command_time = time.time()
     while True:
-        if state == "idle":
-            print("Voice assistant in idle mode. Waiting for 'Hello Assistant'...")
-            user_text = recognize_speech(timeout=5)
-            if user_text and "hello assistant" in user_text.lower():
+        # Always listen for voice input
+        user_text = recognize_speech(timeout=5)
+        if user_text:
+            lowered = user_text.lower()
+            # Check for "leaving" command irrespective of state
+            if ("i'm leaving" in lowered or "i am leaving" in lowered or "im leaving" in lowered):
+                # Process leaving command immediately
+                response = await handle_commands(user_text)
+                speak_text(response)
+                # Also, reset state to idle after processing
+                state = "idle"
+                last_command_time = time.time()
+            # Else, if idle check for wake word:
+            elif state == "idle" and "hello assistant" in lowered:
                 speak_text("Hello, how can I help you?")
                 state = "active"
                 last_command_time = time.time()
-            await asyncio.sleep(1)
-        elif state == "active":
-            user_text = recognize_speech(timeout=5)
-            if user_text:
+            # If in active state, process any command
+            elif state == "active":
                 last_command_time = time.time()
                 response = await process_user_query(user_text)
-                logger.info("Assistant Response", response=response)
                 speak_text(response)
-            else:
-                if time.time() - last_command_time > 30:
-                    speak_text("Going idle.")
-                    state = "idle"
-            await asyncio.sleep(1)
+            # If no command for 30 seconds in active mode, go back to idle.
+            if state == "active" and (time.time() - last_command_time > 30):
+                speak_text("Going idle.")
+                state = "idle"
+        await asyncio.sleep(1)
 
 def start_voice_assistant():
     asyncio.run(voice_assistant_loop())
@@ -688,6 +703,7 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 def automation_controller():
     """
     When the PIR sensor indicates occupancy, run the TFLite occupant detection model.
+    Log PIR and camera detections.
     If both the motion sensor and the model detect a person, automatically adjust devices.
     Logic:
       - If current time is after 6 PM or before 6 AM, turn on the kitchen light.
@@ -700,7 +716,9 @@ def automation_controller():
     while True:
         motion = latest_data.get('motion', False)
         if motion:
+            log_system("PIR sensor: Occupant detected.")
             if detect_person():
+                log_system("Camera: Occupant detected.")
                 now = datetime.datetime.now()
                 # Turn on kitchen light at nighttime
                 if now.hour >= 18 or now.hour < 6:
@@ -708,7 +726,6 @@ def automation_controller():
                         set_light_state(KITCHEN_LIGHT_PIN, "on")
                         kitchen_state = "on"
                         log_system("Automated: Kitchen Light turned ON (nighttime occupancy).")
-                # Automation for AC/Fan based on ambient temperature
                 current_temp = latest_data.get('temperature')
                 if current_temp is not None:
                     if current_temp > 28:
