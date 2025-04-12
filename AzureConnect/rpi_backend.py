@@ -337,7 +337,7 @@ You are responsible for controlling three devices in the house:
 - "Lights off" => 'kitchen-off'
 - "Turn off the lights" => 'kitchen-off'
 - "Turn on the AC" => 'ac-on'
-- "Turn off the AC" => 'ac-off'
+- urn off the AC" => 'ac-off'
 - "Turn on the fan" => 'fan-on'
 - "Turn off the fan" => 'fan-off'
 
