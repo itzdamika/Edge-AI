@@ -12,6 +12,8 @@ interpreter.allocate_tensors()
 
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
+for detail in output_details:
+    print(detail)
 
 input_shape = input_details[0]['shape'][1:3]  
 
