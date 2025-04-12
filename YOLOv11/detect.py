@@ -3,7 +3,7 @@ import numpy as np
 import onnxruntime as ort
 
 # Load ONNX model
-session = ort.InferenceSession("best-quantized.onnx")
+session = ort.InferenceSession("best_quantized.onnx")
 input_name = session.get_inputs()[0].name
 input_shape = session.get_inputs()[0].shape
 input_height, input_width = input_shape[2], input_shape[3]
