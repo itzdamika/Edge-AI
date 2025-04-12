@@ -83,8 +83,8 @@ if not pi.connected:
     raise SystemExit("Could not connect to pigpio daemon. Start it with 'sudo systemctl start pigpiod'.")
 
 # Digital sensor pins
-AIR_QUALITY_PIN = 18    # MQ‑135 digital output
-MOTION_SENSOR_PIN = 17  # HC‑SR501 motion sensor
+AIR_QUALITY_PIN = 18
+MOTION_SENSOR_PIN = 17
 
 pi.set_mode(AIR_QUALITY_PIN, pigpio.INPUT)
 pi.set_pull_up_down(AIR_QUALITY_PIN, pigpio.PUD_DOWN)
@@ -102,20 +102,28 @@ for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
 
 # Global state variables for on/off
 kitchen_state = "off"
-livingroom_state = "off"  # for AC on/off
-bedroom_state = "off"     # for Fan on/off
+livingroom_state = "off"
+bedroom_state = "off"
 
 # NEW: AC Temperature and Fan Speed variables
-livingroom_ac_temp = 24  # will be reset to 16 when AC is turned ON
-bedroom_fan_speed = 1    # will be reset to 1 when Fan is turned ON
+livingroom_ac_temp = 24
+bedroom_fan_speed = 1
 
 # ---------------------------
 # I2C and OLED Initialization
 # ---------------------------
-i2c = busio.I2C(board.SCL, board.SDA)  # SCL = GPIO3, SDA = GPIO2
+i2c = busio.I2C(board.SCL, board.SDA)
 display = adafruit_ssd1306.SSD1306_I2C(128, 32, i2c)
 display.fill(0)
 display.show()
+
+def show_welcome_message():
+    display.fill(0)
+    welcome_text = "SMART AURA"
+    display.text(welcome_text, 34, 12, 1)
+    display.show()
+    time.sleep(5)
+    update_display()
 
 def update_display():
     """Update the OLED display with the current states of Light, AC, and Fan."""
@@ -130,6 +138,9 @@ def update_display():
     else:
         display.text("Fan: OFF", 0, 20, 1)
     display.show()
+
+# Start welcome message in a separate thread
+threading.Thread(target=show_welcome_message, daemon=True).start()
 
 # ---------------------------
 # Log Persistence (System and Voice Logs)
@@ -311,7 +322,7 @@ def control_livingroom_ac(state: str = Query(..., description="Light state: 'on'
         set_light_state(LIVINGROOM_AC_PIN, state)
         if state.lower() == "on":
             livingroom_state = "on"
-            livingroom_ac_temp = 16  # set default when AC is turned on
+            livingroom_ac_temp = 16  # default when AC is turned on
         else:
             livingroom_state = "off"
         update_display()
@@ -327,7 +338,7 @@ def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' o
         set_light_state(BEDROOM_FAN_PIN, state)
         if state.lower() == "on":
             bedroom_state = "on"
-            bedroom_fan_speed = 1  # set default when Fan is turned on
+            bedroom_fan_speed = 1  # default when Fan is turned on
         else:
             bedroom_state = "off"
         update_display()
