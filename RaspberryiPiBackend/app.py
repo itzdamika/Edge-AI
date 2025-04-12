@@ -6,6 +6,7 @@ import board
 import adafruit_dht
 import adafruit_ssd1306
 import busio
+import json
 import cv2
 import base64
 import pigpio
@@ -118,38 +119,65 @@ def update_display():
     display.text(f"Fan: {bedroom_state.upper()}", 0, 20, 1)
     display.show()
 
-# (ADDED) Minimal logging arrays for system and voice
+
 systemLogs = []
 voiceLogs = []
 
 def log_system(message: str):
-    """Store a system log entry (e.g. 'Kitchen Light turned ON')"""
-    systemLogs.append({
+    """Store a system log entry (e.g. 'Kitchen Light turned ON') and append to file."""
+    log_entry = {
         "timestamp": time.time(),
         "message": message
-    })
+    }
+    systemLogs.append(log_entry)
     if len(systemLogs) > 200:
         systemLogs.pop(0)
+    with open("system_logs.txt", "a") as f:
+        f.write(json.dumps(log_entry) + "\n")
 
 def log_voice(user: str, assistant: str):
-    """Store a voice log entry with user question + assistant answer."""
-    voiceLogs.append({
+    """Store a voice log entry with user question + assistant answer and append to file."""
+    log_entry = {
         "timestamp": time.time(),
         "user": user,
         "assistant": assistant
-    })
+    }
+    voiceLogs.append(log_entry)
     if len(voiceLogs) > 200:
         voiceLogs.pop(0)
+    with open("voice_logs.txt", "a") as f:
+        f.write(json.dumps(log_entry) + "\n")
 
+# ---------------------------
+# Endpoints for Retrieving Logs
+# ---------------------------
 @app.get("/logs")
 def get_logs():
-    return systemLogs
+    """Return all system logs (live & past) from the persisted file."""
+    all_logs = []
+    try:
+        with open("system_logs.txt", "r") as f:
+            for line in f:
+                if line.strip():
+                    all_logs.append(json.loads(line))
+    except FileNotFoundError:
+        all_logs = systemLogs
+    return all_logs
 
 @app.get("/voicelogs")
 def get_voice_logs():
-    return voiceLogs
+    """Return all voice logs (live & past) from the persisted file."""
+    all_logs = []
+    try:
+        with open("voice_logs.txt", "r") as f:
+            for line in f:
+                if line.strip():
+                    all_logs.append(json.loads(line))
+    except FileNotFoundError:
+        all_logs = voiceLogs
+    return all_logs
 
-# (ADDED) a /lights endpoint returning the states
+
 @app.get("/lights")
 def get_light_states():
     return {
