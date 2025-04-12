@@ -319,7 +319,7 @@ export default function Dashboard() {
                 max="32"
                 value={acTemp}
                 onChange={e => setAcTemp(Number(e.target.value))}
-                className="w-full"
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 "
               />
               <span className="ml-4 text-white">{acTemp}°C</span>
             </div>
@@ -359,7 +359,7 @@ export default function Dashboard() {
                 max="3"
                 value={fanSpeed}
                 onChange={e => setFanSpeed(Number(e.target.value))}
-                className="w-full"
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
               <span className="ml-4 text-white">Lvl {fanSpeed}</span>
             </div>
