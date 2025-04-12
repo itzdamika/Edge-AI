@@ -1,4 +1,4 @@
-import asyncio
+import asyncio 
 import threading
 import time
 import datetime
@@ -100,12 +100,18 @@ for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
 
-# Global light state variables (simple, no locks)
+# Global state variables for on/off
 kitchen_state = "off"
-livingroom_state = "off"
-bedroom_state = "off"
+livingroom_state = "off"  # for AC on/off
+bedroom_state = "off"     # for Fan on/off
 
-# (ADDED) I2C and OLED initialization
+# NEW: AC Temperature and Fan Speed variables
+livingroom_ac_temp = 24  # will be reset to 16 when AC is turned ON
+bedroom_fan_speed = 1    # will be reset to 1 when Fan is turned ON
+
+# ---------------------------
+# I2C and OLED Initialization
+# ---------------------------
 i2c = busio.I2C(board.SCL, board.SDA)  # SCL = GPIO3, SDA = GPIO2
 display = adafruit_ssd1306.SSD1306_I2C(128, 32, i2c)
 display.fill(0)
@@ -115,16 +121,24 @@ def update_display():
     """Update the OLED display with the current states of Light, AC, and Fan."""
     display.fill(0)
     display.text(f"Light: {kitchen_state.upper()}", 0, 0, 1)
-    display.text(f"AC: {livingroom_state.upper()}", 0, 10, 1)
-    display.text(f"Fan: {bedroom_state.upper()}", 0, 20, 1)
+    if livingroom_state.lower() == "on":
+        display.text(f"AC: {livingroom_ac_temp}C", 0, 10, 1)
+    else:
+        display.text("AC: OFF", 0, 10, 1)
+    if bedroom_state.lower() == "on":
+        display.text(f"Fan: Lvl {bedroom_fan_speed}", 0, 20, 1)
+    else:
+        display.text("Fan: OFF", 0, 20, 1)
     display.show()
 
-
+# ---------------------------
+# Log Persistence (System and Voice Logs)
+# ---------------------------
 systemLogs = []
 voiceLogs = []
 
 def log_system(message: str):
-    """Store a system log entry (e.g. 'Kitchen Light turned ON') and append to file."""
+    """Store a system log entry and append it to file."""
     log_entry = {
         "timestamp": time.time(),
         "message": message
@@ -136,7 +150,7 @@ def log_system(message: str):
         f.write(json.dumps(log_entry) + "\n")
 
 def log_voice(user: str, assistant: str):
-    """Store a voice log entry with user question + assistant answer and append to file."""
+    """Store a voice log entry and append it to file."""
     log_entry = {
         "timestamp": time.time(),
         "user": user,
@@ -148,9 +162,6 @@ def log_voice(user: str, assistant: str):
     with open("voice_logs.txt", "a") as f:
         f.write(json.dumps(log_entry) + "\n")
 
-# ---------------------------
-# Endpoints for Retrieving Logs
-# ---------------------------
 @app.get("/logs")
 def get_logs():
     """Return all system logs (live & past) from the persisted file."""
@@ -177,22 +188,22 @@ def get_voice_logs():
         all_logs = voiceLogs
     return all_logs
 
-
 @app.get("/lights")
 def get_light_states():
     return {
         "kitchen": kitchen_state,
         "livingroom": livingroom_state,
-        "bedroom": bedroom_state
+        "bedroom": bedroom_state,
+        "ac_temp": livingroom_ac_temp,
+        "fan_speed": bedroom_fan_speed
     }
 
 # ---------------------------
-# Sensor Reading Function (with DHT exception handling)
+# Sensor Reading Function
 # ---------------------------
 def read_sensors():
     data = {}
     try:
-        # Attempt reading DHT22
         temp = dhtDevice.temperature
         hum = dhtDevice.humidity
         if temp is not None and hum is not None:
@@ -269,7 +280,7 @@ def video_feed():
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 # ---------------------------
-# Light Control Endpoints (Simplified)
+# Light Control Endpoints
 # ---------------------------
 def set_light_state(pin: int, state: str):
     logger.info(f"[DEBUG] Setting pin {pin} to state '{state}'")
@@ -279,9 +290,7 @@ def set_light_state(pin: int, state: str):
         pi.write(pin, 0)
     else:
         raise ValueError("Invalid state; use 'on' or 'off'.")
-    logger.info(
-        f"[DEBUG] Pin {pin} set to {'HIGH' if state.lower()=='on' else 'LOW'}"
-    )
+    logger.info(f"[DEBUG] Pin {pin} set to {'HIGH' if state.lower()=='on' else 'LOW'}")
 
 @app.get("/light/kitchen")
 def control_kitchen_light(state: str = Query(..., description="Light state: 'on' or 'off'")):
@@ -289,43 +298,46 @@ def control_kitchen_light(state: str = Query(..., description="Light state: 'on'
     try:
         set_light_state(KITCHEN_LIGHT_PIN, state)
         kitchen_state = state.lower()
-        update_display()  # (ADDED) Show new states
-        log_system(f"Light turned {kitchen_state.upper()}")  # (ADDED)
+        update_display()
+        log_system(f"Light turned {kitchen_state.upper()}")
         return {"light": "kitchen", "state": kitchen_state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/light/livingroom")
 def control_livingroom_ac(state: str = Query(..., description="Light state: 'on' or 'off'")):
-    global livingroom_state
+    global livingroom_state, livingroom_ac_temp
     try:
         set_light_state(LIVINGROOM_AC_PIN, state)
-        livingroom_state = state.lower()
-        update_display()  # (ADDED) Show new states
-        log_system(f"AC turned {livingroom_state.upper()}")  # (ADDED)
-        return {"light": "livingroom_ac", "state": livingroom_state}
+        if state.lower() == "on":
+            livingroom_state = "on"
+            livingroom_ac_temp = 16  # set default when AC is turned on
+        else:
+            livingroom_state = "off"
+        update_display()
+        log_system(f"AC turned {livingroom_state.upper()}")
+        return {"light": "livingroom_ac", "state": livingroom_state, "ac_temp": livingroom_ac_temp}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/light/bedroom")
 def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' or 'off'")):
-    global bedroom_state
+    global bedroom_state, bedroom_fan_speed
     try:
         set_light_state(BEDROOM_FAN_PIN, state)
-        bedroom_state = state.lower()
-        update_display()  # (ADDED) Show new states
-        log_system(f"Fan turned {bedroom_state.upper()}")  # (ADDED)
-        return {"light": "bedroom_fan", "state": bedroom_state}
+        if state.lower() == "on":
+            bedroom_state = "on"
+            bedroom_fan_speed = 1  # set default when Fan is turned on
+        else:
+            bedroom_state = "off"
+        update_display()
+        log_system(f"Fan turned {bedroom_state.upper()}")
+        return {"light": "bedroom_fan", "state": bedroom_state, "fan_speed": bedroom_fan_speed}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/login")
 def login(request: LoginRequest):
-    """
-    Check the username and password from the request. 
-    If valid (admin or guest), return a user object.
-    Otherwise, raise a 401 Unauthorized error.
-    """
     if request.username == "admin" and request.password == "admin123":
         return {
             "id": "1",
@@ -343,35 +355,49 @@ def login(request: LoginRequest):
     else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+# ---------------------------
+# New Endpoints for AC Temperature and Fan Speed Control
+# ---------------------------
+@app.get("/ac/temp")
+def control_ac_temp(value: int = Query(..., description="AC temperature between 16 and 32")):
+    global livingroom_ac_temp
+    if value < 16 or value > 32:
+        raise HTTPException(status_code=400, detail="AC temperature must be between 16 and 32")
+    livingroom_ac_temp = value
+    update_display()
+    log_system(f"AC temperature set to {value}C")
+    return {"ac_temp": value}
+
+@app.get("/fan/speed")
+def control_fan_speed(level: int = Query(..., description="Fan speed level between 1 and 3")):
+    global bedroom_fan_speed
+    if level < 1 or level > 3:
+        raise HTTPException(status_code=400, detail="Fan speed must be between 1 and 3")
+    bedroom_fan_speed = level
+    update_display()
+    log_system(f"Fan speed set to level {level}")
+    return {"fan_speed": level}
 
 # ---------------------------
 # GPT & Voice Assistant Components
 # ---------------------------
-from openai import AzureOpenAI
-openai_client = AzureOpenAI(
-    api_key=config.AZURE_OPENAI_API_KEY,
-    api_version="2024-05-01-preview",
-    azure_endpoint=config.AZURE_ENDPOINT,
-)
-
 intent_prompt = """
 Analyze the user’s message and classify its intent into one of the following categories:
 
-1. **command-query**: Commands related to controlling devices in the home.  
-   Examples:  
-   - "On the lights"  
-   - "Turn on the lights"  
-   - "Off the lights"  
-   - "On the AC"  
-   - "Off the AC"  
+1. **command-query**: Commands related to controlling devices in the home.
+   Examples:
+   - "On the lights"
+   - "Turn on the lights"
+   - "Off the lights"
+   - "On the AC"
+   - "Off the AC"
    - "Turn on the fan"
 
-2. **general-query**: All other types of general questions or statements unrelated to home device control.  
+2. **general-query**: All other types of general questions or statements unrelated to home device control.
 
 **Instructions:**
 - Respond with only one of the following intents: **command-query** or **general-query**.
 - Ensure that the intent is classified accurately based on the user’s message.
-
 """
 
 general_prompt = """
@@ -379,15 +405,18 @@ You are a SmartAura Smart Home Assistant. Keep answers short and direct.
 """
 
 command_prompt = """
-You are responsible for controlling three devices in the house:
+You are responsible for controlling devices in the house:
 
 1) Kitchen Light: 'kitchen-on' / 'kitchen-off'
-2) Living Room AC: 'ac-on' / 'ac-off'
-3) Bedroom Fan: 'fan-on' / 'fan-off'
+2) Living Room AC: 'ac-on' / 'ac-off' or 'ac-temp-XX' where XX is a value between 16 and 32.
+3) Bedroom Fan: 'fan-on' / 'fan-off' or 'fan-speed-X' where X is 1, 2, or 3.
 
 **Guidelines:**
-- Respond only with one of the following actions: kitchen-on, kitchen-off, ac-on, ac-off, fan-on, or fan-off.
-- If the request does not match any valid action, respond with **"error"**.
+- Respond only with one of the following actions: 
+  kitchen-on, kitchen-off, 
+  ac-on, ac-off, ac-temp-XX,
+  fan-on, fan-off, fan-speed-X.
+- If the request does not match any valid action, respond with "error".
 
 **Examples of valid commands:**
 - "Lights on" => 'kitchen-on'
@@ -396,12 +425,13 @@ You are responsible for controlling three devices in the house:
 - "Turn off the lights" => 'kitchen-off'
 - "Turn on the AC" => 'ac-on'
 - "Turn off the AC" => 'ac-off'
+- "Set AC to 26 degrees" => 'ac-temp-26'
 - "Turn on the fan" => 'fan-on'
 - "Turn off the fan" => 'fan-off'
+- "Set fan speed to 2" => 'fan-speed-2'
 
 **Important Notes:**
-- No additional text or explanation is required. Only respond with the action corresponding to the command or "error" if there is no match. Only just the text and nothing else.
-
+- No additional text or explanation is required. Only respond with the action corresponding to the command or "error" if there is no match.
 """
 
 async def _create_completion(messages: list, **kwargs) -> str:
@@ -424,45 +454,67 @@ async def handle_commands(user_message: str) -> str:
     ]
     command = await _create_completion(messages)
     logger.info("Detected Command", intent=command)
-
-    global kitchen_state, livingroom_state, bedroom_state
-
+    global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed
     if command == "kitchen-on":
         set_light_state(KITCHEN_LIGHT_PIN, "on")
         kitchen_state = "on"
-        update_display()  # (ADDED) Show new states
-        log_system("Light turned ON")  # (ADDED)
+        update_display()
+        log_system("Light turned ON")
         return "Turning on the light."
     elif command == "kitchen-off":
         set_light_state(KITCHEN_LIGHT_PIN, "off")
         kitchen_state = "off"
         update_display()
-        log_system("Light turned OFF")  # (ADDED)
+        log_system("Light turned OFF")
         return "Turning off the light."
     elif command == "ac-on":
         set_light_state(LIVINGROOM_AC_PIN, "on")
         livingroom_state = "on"
+        livingroom_ac_temp = 16  # default when turning on
         update_display()
-        log_system("AC turned ON")  # (ADDED)
-        return "Turning on the AC."
+        log_system("AC turned ON with default temperature 16°C")
+        return "Turning on the AC with default temperature 16°C."
     elif command == "ac-off":
         set_light_state(LIVINGROOM_AC_PIN, "off")
         livingroom_state = "off"
         update_display()
-        log_system("AC turned OFF")  # (ADDED)
+        log_system("AC turned OFF")
         return "Turning off the AC."
+    elif command.startswith("ac-temp-"):
+        try:
+            temp_value = int(command.split("ac-temp-")[1])
+            if temp_value < 16 or temp_value > 32:
+                return "AC temperature out of range."
+            livingroom_ac_temp = temp_value
+            update_display()
+            log_system(f"AC temperature set to {temp_value}C")
+            return f"Setting AC temperature to {temp_value} degrees."
+        except Exception:
+            return "Invalid AC temperature value."
     elif command == "fan-on":
         set_light_state(BEDROOM_FAN_PIN, "on")
         bedroom_state = "on"
+        bedroom_fan_speed = 1  # default when turning on
         update_display()
-        log_system("Fan turned ON")  # (ADDED)
-        return "Turning on the fan."
+        log_system("Fan turned ON with default speed 1")
+        return "Turning on the fan with default speed 1."
     elif command == "fan-off":
         set_light_state(BEDROOM_FAN_PIN, "off")
         bedroom_state = "off"
         update_display()
-        log_system("Fan turned OFF")  # (ADDED)
+        log_system("Fan turned OFF")
         return "Turning off the fan."
+    elif command.startswith("fan-speed-"):
+        try:
+            speed_value = int(command.split("fan-speed-")[1])
+            if speed_value < 1 or speed_value > 3:
+                return "Fan speed out of range."
+            bedroom_fan_speed = speed_value
+            update_display()
+            log_system(f"Fan speed set to {speed_value}")
+            return f"Setting fan speed to {speed_value}."
+        except Exception:
+            return "Invalid fan speed value."
     else:
         return "Sorry, I didn't understand your request."
 
@@ -481,14 +533,13 @@ async def process_user_query(user_message: str):
         ]
         detected_intent = (await _create_completion(messages)).lower().strip()
         logger.info("Detected Intent", intent=detected_intent)
-
+        response_text = ""
         if detected_intent == "command-query":
             response_text = await handle_commands(user_message)
         elif detected_intent == "general-query":
             response_text = await handle_general(user_message)
         else:
             response_text = "I'm not sure what you're asking."
-        # (ADDED) Log voice user -> response
         log_voice(user_message, response_text)
         return response_text
     except Exception as e:
@@ -505,9 +556,13 @@ class DeviceStateManager:
 
 device_state_manager = DeviceStateManager()
 
-# ---------------------------
-# Azure Speech Service Configuration for TTS
-# ---------------------------
+from openai import AzureOpenAI
+openai_client = AzureOpenAI(
+    api_key=config.AZURE_OPENAI_API_KEY,
+    api_version="2024-05-01-preview",
+    azure_endpoint=config.AZURE_ENDPOINT,
+)
+
 speech_config = speechsdk.SpeechConfig(subscription=config.SPEECH_KEY, region=config.SERVICE_REGION)
 speech_config.set_property(speechsdk.PropertyId.SpeechServiceConnection_Endpoint, config.TTS_ENDPOINT)
 speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
@@ -539,7 +594,6 @@ def speak_text(text: str):
 async def voice_assistant_loop():
     state = "idle"
     last_command_time = None
-
     while True:
         if state == "idle":
             print("Voice assistant in idle mode. Waiting for 'Hello Assistant'...")
@@ -562,15 +616,11 @@ async def voice_assistant_loop():
                     state = "idle"
             await asyncio.sleep(1)
 
-
 def start_voice_assistant():
     asyncio.run(voice_assistant_loop())
 
 threading.Thread(target=start_voice_assistant, daemon=True).start()
 
-# ---------------------------
-# Run FastAPI Server
-# ---------------------------
 if __name__ == "__main__":
     try:
         import uvicorn

@@ -14,7 +14,8 @@ import {
   Thermometer,
   Droplets,
   Wind,
-  X
+  X,
+  Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { SensorData } from '../types';
@@ -26,12 +27,16 @@ export default function Dashboard() {
   const [showCamera, setShowCamera] = useState(false);
   const [liveSensors, setLiveSensors] = useState<SensorData | null>(null);
 
-  // local states for lights
+  // States for lights
   const [kitchenLight, setKitchenLight] = useState(false);
   const [livingRoomAc, setLivingRoomAc] = useState(false);
   const [bedroomFan, setBedroomFan] = useState(false);
 
-  // logs
+  // NEW: States for AC Temperature and Fan Speed
+  const [acTemp, setAcTemp] = useState<number>(24);
+  const [fanSpeed, setFanSpeed] = useState<number>(1);
+
+  // Logs
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
   const [voiceLogs, setVoiceLogs] = useState<any[]>([]);
 
@@ -55,16 +60,17 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll light states
+  // Poll lights state, including AC temp and Fan speed
   useEffect(() => {
     const fetchLights = async () => {
       try {
         const res = await fetch("http://192.168.1.13:8000/lights");
         const data = await res.json();
-        // data = { kitchen: "on"/"off", livingroom: "on"/"off", bedroom: "on"/"off" }
         setKitchenLight(data.kitchen === "on");
         setLivingRoomAc(data.livingroom === "on");
         setBedroomFan(data.bedroom === "on");
+        setAcTemp(data.ac_temp);
+        setFanSpeed(data.fan_speed);
       } catch (error) {
         console.error("Error fetching lights state", error);
       }
@@ -106,7 +112,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // toggle function remains same
+  // Toggle function for on/off switches
   const toggleLight = async (light: string) => {
     let newState: boolean;
     let endpoint = "";
@@ -125,7 +131,6 @@ export default function Dashboard() {
     try {
       const res = await fetch(endpoint);
       if (res.ok) {
-        // no need to manually set states, we do though for immediate UI
         if (light === "kitchen") setKitchenLight(newState);
         else if (light === "livingroom") setLivingRoomAc(newState);
         else if (light === "bedroom") setBedroomFan(newState);
@@ -144,11 +149,37 @@ export default function Dashboard() {
     }
   };
 
-  // fallback for sensors
-  const sensorValues = liveSensors || {
-    temperature: 0,
-    humidity: 0,
-    airQuality: 0
+  // Functions to download logs as JSON files
+  const downloadSystemLogs = async () => {
+    try {
+      const res = await fetch("http://192.168.1.13:8000/logs");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'system_logs.json';
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error downloading system logs", error);
+    }
+  };
+
+  const downloadVoiceLogs = async () => {
+    try {
+      const res = await fetch("http://192.168.1.13:8000/voicelogs");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'voice_logs.json';
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error downloading voice logs", error);
+    }
   };
 
   return (
@@ -163,9 +194,7 @@ export default function Dashboard() {
             SmartAura Dashboard
           </motion.h1>
           <div className="flex items-center gap-4">
-            <span className="text-white">
-              {user?.role}
-            </span>
+            <span className="text-white">{user?.role}</span>
             <motion.button
               whileHover={{ scale: 1 }}
               whileTap={{ scale: 0.9 }}
@@ -180,9 +209,9 @@ export default function Dashboard() {
         {/* Sensor Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {[
-            { icon: Thermometer, label: 'Room Temperature', value: `${sensorValues.temperature}°C`, color: 'text-orange-400' },
-            { icon: Droplets, label: 'Humidity', value: `${sensorValues.humidity}%`, color: 'text-blue-400' },
-            { icon: Wind, label: 'Air Quality', value: sensorValues.airQuality, color: 'text-purple-400' }
+            { icon: Thermometer, label: 'Room Temperature', value: `${liveSensors?.temperature || 0}°C`, color: 'text-orange-400' },
+            { icon: Droplets, label: 'Humidity', value: `${liveSensors?.humidity || 0}%`, color: 'text-blue-400' },
+            { icon: Wind, label: 'Air Quality', value: liveSensors?.airQuality || 'N/A', color: 'text-purple-400' }
           ].map((sensor, index) => (
             <motion.div
               key={index}
@@ -199,7 +228,7 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Our minimal toggles for kitchen, livingroom, bedroom */}
+        {/* Device Control Toggles for Lights */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -271,7 +300,90 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
-        {/* The rest is same as your code... e.g. security camera, logs, voice assistant messages */}
+        {/* AC Temperature and Fan Speed Controls */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          {/* AC Temperature Control */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-[#141414] p-6 rounded-xl border border-[#1F1F1F]"
+          >
+            <div className="flex items-center gap-3">
+              <Thermometer className="w-6 h-6 text-orange-400" />
+              <h3 className="text-lg font-semibold text-white">AC Temperature</h3>
+            </div>
+            <div className="mt-4 flex items-center">
+              <input
+                type="range"
+                min="16"
+                max="32"
+                value={acTemp}
+                onChange={e => setAcTemp(Number(e.target.value))}
+                className="w-full"
+              />
+              <span className="ml-4 text-white">{acTemp}°C</span>
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch(`http://192.168.1.13:8000/ac/temp?value=${acTemp}`);
+                  if (res.ok) {
+                    toast.success("AC temperature updated");
+                  } else {
+                    toast.error("Failed to update AC temperature");
+                  }
+                } catch (error) {
+                  toast.error("Error updating AC temperature");
+                }
+              }}
+              className="mt-2 bg-blue-500 px-4 py-2 rounded"
+            >
+              Set Temperature
+            </button>
+          </motion.div>
+
+          {/* Fan Speed Control */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-[#141414] p-6 rounded-xl border border-[#1F1F1F]"
+          >
+            <div className="flex items-center gap-3">
+              <Fan className="w-6 h-6 text-blue-400" />
+              <h3 className="text-lg font-semibold text-white">Fan Speed</h3>
+            </div>
+            <div className="mt-4 flex items-center">
+              <input
+                type="range"
+                min="1"
+                max="3"
+                value={fanSpeed}
+                onChange={e => setFanSpeed(Number(e.target.value))}
+                className="w-full"
+              />
+              <span className="ml-4 text-white">Lvl {fanSpeed}</span>
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch(`http://192.168.1.13:8000/fan/speed?level=${fanSpeed}`);
+                  if (res.ok) {
+                    toast.success("Fan speed updated");
+                  } else {
+                    toast.error("Failed to update fan speed");
+                  }
+                } catch (error) {
+                  toast.error("Error updating fan speed");
+                }
+              }}
+              className="mt-2 bg-blue-500 px-4 py-2 rounded"
+            >
+              Set Speed
+            </button>
+          </motion.div>
+        </div>
+
+        {/* Camera and Logs */}
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Camera */}
           <motion.div
@@ -316,22 +428,28 @@ export default function Dashboard() {
             )}
           </motion.div>
 
-          {/* System Logs */}
+          {/* System Logs with Download Button */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="bg-[#141414] p-6 rounded-xl border border-[#1F1F1F]"
           >
-            <div className="flex items-center gap-3 mb-4">
-              <AlertTriangle className="w-6 h-6 text-amber-400" />
-              <h2 className="text-xl font-semibold text-white">System Logs</h2>
+            <div className="flex items-center gap-3 mb-4 justify-between">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 text-amber-400" />
+                <h2 className="text-xl font-semibold text-white">System Logs</h2>
+              </div>
+              <button
+                onClick={downloadSystemLogs}
+                className="text-sm text-blue-500 hover:underline"
+              >
+                <Download/>
+              </button>
             </div>
             <div className="space-y-4 max-h-48 overflow-y-auto pr-2">
               {systemLogs.map((log, i) => (
                 <div key={i} className="text-sm">
-                  <span className="text-gray-500 mr-2">
-                    {new Date(log.timestamp*1000).toLocaleTimeString()}
-                  </span>
+                  <span className="text-gray-500 mr-2">{new Date(log.timestamp * 1000).toLocaleTimeString()}</span>
                   {log.message}
                 </div>
               ))}
@@ -344,9 +462,17 @@ export default function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           className="mt-8 bg-[#141414] p-6 rounded-xl border border-[#1F1F1F]"
         >
-          <div className="flex items-center gap-3 mb-4">
-            <MessageSquare className="w-6 h-6 text-indigo-400" />
-            <h2 className="text-xl font-semibold text-white">Voice Assistant</h2>
+          <div className="flex items-center gap-3 mb-4 justify-between">
+            <div className="flex items-center gap-3">
+              <MessageSquare className="w-6 h-6 text-indigo-400" />
+              <h2 className="text-xl font-semibold text-white">Voice Assistant</h2>
+            </div>
+            <button
+              onClick={downloadVoiceLogs}
+              className="text-sm text-blue-500 hover:underline"
+            >
+              <Download/>
+            </button>
           </div>
           <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
             {voiceLogs.map((log, i) => (
