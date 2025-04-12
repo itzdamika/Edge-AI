@@ -580,7 +580,7 @@ speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
 audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
 speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
 
-def recognize_speech(timeout=5):
+def recognize_speech(timeout=8):
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
         print("Listening...")
