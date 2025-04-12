@@ -32,9 +32,16 @@ try:
     while True:
         temperature = round(random.uniform(20.0, 30.0), 2)
         humidity = round(random.uniform(30.0, 70.0), 2)
+        motion = random.choice([True, False])
+        face_detection = random.choice([True, False])
+        air_quality = round(random.uniform(0.0, 1.0), 2) 
+
         telemetry = {
             "Temperature": temperature,
-            "Humidity": humidity
+            "Humidity": humidity,
+            "FaceDetection": face_detection,
+            "Motion": motion,
+            "AirQuality": air_quality
         }
 
         msg = Message(json.dumps(telemetry))
@@ -44,7 +51,9 @@ try:
         print(f"Sending message: {telemetry}")
         device_client.send_message(msg)
         time.sleep(5)
+
 except KeyboardInterrupt:
-    print("Stopping...")
+    print("Stopped by user.")
+
 finally:
     device_client.disconnect()
