@@ -74,7 +74,6 @@ app.add_middleware(
 # ---------------------------
 # Sensor & Light Control Initialization
 # ---------------------------
-
 # DHT22 sensor on GPIO27
 dhtDevice = adafruit_dht.DHT22(board.D27)
 
@@ -103,12 +102,12 @@ for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
 
 # Global state variables for on/off
 kitchen_state = "off"
-livingroom_state = "off"  # For AC on/off
-bedroom_state = "off"     # For Fan on/off
+livingroom_state = "off"  # for AC on/off
+bedroom_state = "off"     # for Fan on/off
 
 # NEW: AC Temperature and Fan Speed variables
-livingroom_ac_temp = 24   # Will be reset to 16 when AC is turned ON
-bedroom_fan_speed = 1     # Will be reset to 1 when Fan is turned ON
+livingroom_ac_temp = 24   # will be reset to 16 when AC is turned ON
+bedroom_fan_speed = 1     # will be reset to 1 when Fan is turned ON
 
 # ---------------------------
 # I2C and OLED Initialization
@@ -119,17 +118,16 @@ display.fill(0)
 display.show()
 
 def show_welcome_message():
-    """Display 'SMART AURA' for 5 seconds on startup (big centered text)."""
     display.fill(0)
     welcome_text = "SMART AURA"
-    # Assuming default font ~6px wide, center the text approximately
+    # Center the text approximately; adjust as needed for your OLED
     display.text(welcome_text, 34, 12, 1)
     display.show()
     time.sleep(5)
     update_display()
 
 def update_display():
-    """Update OLED display with the current states. Shows values if on, 'OFF' if off."""
+    """Update the OLED display with the current states of Light, AC, and Fan."""
     display.fill(0)
     display.text(f"Light: {kitchen_state.upper()}", 0, 0, 1)
     if livingroom_state.lower() == "on":
@@ -158,7 +156,7 @@ occupant_input_shape = occupant_input_details[0]['shape'][1:3]
 def detect_person():
     """
     Capture a frame from the webcam, run the tflite model,
-    and return True if a person is detected (confidence > 0.5), else False.
+    and return True if a person is detected (confidence > 0.5).
     """
     cap = cv2.VideoCapture(0)
     ret, frame = cap.read()
@@ -171,7 +169,6 @@ def detect_person():
     occupant_interpreter.set_tensor(occupant_input_details[0]['index'], input_tensor)
     occupant_interpreter.invoke()
     output_data = occupant_interpreter.get_tensor(occupant_output_details[0]['index'])[0]
-    # Assume output_data[4] contains confidence scores for person detection
     try:
         confs = output_data[4]
         if np.any(confs > 0.5):
@@ -501,26 +498,24 @@ async def _create_completion(messages: list, **kwargs) -> str:
     return response.choices[0].message.content.strip()
 
 async def handle_commands(user_message: str) -> str:
-    # Special check for "I'm leaving"
+    global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed
+    # Special check for "I'm leaving" command:
     if "i'm leaving" in user_message.lower() or "im leaving" in user_message.lower():
         set_light_state(KITCHEN_LIGHT_PIN, "off")
         set_light_state(LIVINGROOM_AC_PIN, "off")
         set_light_state(BEDROOM_FAN_PIN, "off")
-        global kitchen_state, livingroom_state, bedroom_state
         kitchen_state = "off"
         livingroom_state = "off"
         bedroom_state = "off"
         update_display()
         log_system("User command: I'm leaving. All devices turned OFF.")
         return "Turning off all devices."
-
     messages = [
         {"role": "system", "content": command_prompt},
         {"role": "user", "content": user_message}
     ]
     command = await _create_completion(messages)
     logger.info("Detected Command", intent=command)
-    global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed
     if command == "kitchen-on":
         set_light_state(KITCHEN_LIGHT_PIN, "on")
         kitchen_state = "on"
@@ -692,29 +687,28 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 def automation_controller():
     """
-    When the PIR sensor indicates occupancy, run the TFLite model.
+    When the PIR sensor indicates occupancy, run the TFLite occupant detection model.
     If both the motion sensor and the model detect a person, automatically adjust devices.
     Logic:
-      - If current time is after 6PM or before 6AM, turn on the kitchen light.
-      - If ambient temperature is high, turn on AC and fan with settings:
-             T > 28°C : AC on at 22°C, fan speed 3
-             24 < T <= 28°C : AC on at 24°C, fan speed 2
-             T <= 24°C : AC and fan off
+      - If current time is after 6 PM or before 6 AM, turn on the kitchen light.
+      - Based on ambient temperature:
+          > 28°C: Turn AC on (set to 22°C) and fan on at speed 3.
+          24°C < Temp <= 28°C: Turn AC on (set to 24°C) and fan on at speed 2.
+          <= 24°C: Turn AC and fan off.
     """
     global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed
     while True:
         motion = latest_data.get('motion', False)
         if motion:
-            person_model = detect_person()
-            if person_model:
+            if detect_person():
                 now = datetime.datetime.now()
-                # Turn on light if nighttime (after 6pm or before 6am)
+                # Turn on kitchen light at nighttime
                 if now.hour >= 18 or now.hour < 6:
                     if kitchen_state.lower() != "on":
                         set_light_state(KITCHEN_LIGHT_PIN, "on")
                         kitchen_state = "on"
                         log_system("Automated: Kitchen Light turned ON (nighttime occupancy).")
-                # Check ambient temperature
+                # Automation for AC/Fan based on ambient temperature
                 current_temp = latest_data.get('temperature')
                 if current_temp is not None:
                     if current_temp > 28:
@@ -726,7 +720,7 @@ def automation_controller():
                             set_light_state(BEDROOM_FAN_PIN, "on")
                             bedroom_state = "on"
                         bedroom_fan_speed = 3
-                        log_system("Automated: High temp detected. AC set to 22°C and Fan speed to 3.")
+                        log_system("Automated: High temperature detected. AC set to 22°C, Fan speed to 3.")
                     elif current_temp > 24:
                         if livingroom_state.lower() != "on":
                             set_light_state(LIVINGROOM_AC_PIN, "on")
@@ -736,7 +730,7 @@ def automation_controller():
                             set_light_state(BEDROOM_FAN_PIN, "on")
                             bedroom_state = "on"
                         bedroom_fan_speed = 2
-                        log_system("Automated: Moderate temp detected. AC set to 24°C and Fan speed to 2.")
+                        log_system("Automated: Moderate temperature detected. AC set to 24°C, Fan speed to 2.")
                     else:
                         if livingroom_state.lower() != "off":
                             set_light_state(LIVINGROOM_AC_PIN, "off")
@@ -744,9 +738,8 @@ def automation_controller():
                         if bedroom_state.lower() != "off":
                             set_light_state(BEDROOM_FAN_PIN, "off")
                             bedroom_state = "off"
-                        log_system("Automated: Comfortable temp detected. AC and Fan turned OFF.")
+                        log_system("Automated: Comfortable temperature detected. AC and Fan turned OFF.")
                     update_display()
-                # Avoid rapid toggling; wait 60 seconds before re-checking.
                 time.sleep(60)
             else:
                 time.sleep(5)
