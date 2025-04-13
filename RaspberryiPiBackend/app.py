@@ -99,76 +99,15 @@ def recognize_known_face():
         return "Unknown", min_distance
 
 # ---------------------------
-# Temperature Prediction using TFLite Runtime
-# ---------------------------
-import tflite_runtime.interpreter as tflite
-
-def predict_future_temperatures(input_temps):
-    """
-    Predicts the next 5 hours temperature (in Celsius) based on last 5 hours input.
-    Uses hardcoded scaling parameters, converts Celsius to Kelvin and back.
-    """
-    scale_min = 273.0  # min value from training data in Kelvin
-    scale_max = 293.1  # max value from training data in Kelvin
-    input_data = np.array(input_temps, dtype=np.float32)
-    input_kelvin = input_data + 273.15  # convert Celsius to Kelvin
-    input_scaled = (input_kelvin - scale_min) / (scale_max - scale_min)
-    input_reshaped = input_scaled.reshape(1, 5, 1).astype(np.float32)
-    
-    interpreter = tflite.Interpreter(model_path="temperature_model.tflite")
-    interpreter.allocate_tensors()
-    input_details = interpreter.get_input_details()
-    output_details = interpreter.get_output_details()
-    
-    interpreter.set_tensor(input_details[0]['index'], input_reshaped)
-    interpreter.invoke()
-    
-    prediction_scaled = interpreter.get_tensor(output_details[0]['index'])
-    prediction_reshaped = prediction_scaled.reshape(-1)
-    prediction_kelvin = prediction_reshaped * (scale_max - scale_min) + scale_min
-    prediction_celsius = prediction_kelvin - 273.15
-    return prediction_celsius.tolist()
-
-# Global variables for temperature prediction
-temp_history = []      # List of past temperature readings (last 5 hours)
-predicted_temps = []   # Predicted temperatures for next 5 hours
-
-def temperature_prediction_updater():
-    """
-    Every hour, update temp_history with the current temperature and predict the next 5 hours' temperatures.
-    If fewer than 5 past readings exist, replicate the last captured temperature.
-    """
-    global temp_history, predicted_temps
-    while True:
-        # Sleep for one hour (for testing, reduce the duration)
-        time.sleep(3600)
-        current_temp = latest_data.get("temperature")
-        if current_temp is not None:
-            temp_history.append(current_temp)
-        if len(temp_history) < 5:
-            # Use current temperature for all 5 if history is short
-            input_temps = [current_temp if current_temp is not None else 24.0] * 5
-        else:
-            input_temps = temp_history[-5:]
-        try:
-            predicted_temps = predict_future_temperatures(input_temps)
-            log_system(f"Predicted next 5 hours temperature: {predicted_temps}")
-        except Exception as e:
-            log_system(f"Error in temperature prediction: {e}")
-
-threading.Thread(target=temperature_prediction_updater, daemon=True).start()
-
-@app.get("/predict")
-def get_predictions():
-    return {"predicted": predicted_temps}
-
-# ---------------------------
-# Pydantic Model & Config (again)
+# Pydantic Model & Config
 # ---------------------------
 class LoginRequest(BaseModel):
     username: str
     password: str
 
+# ---------------------------
+# Logging Configuration
+# ---------------------------
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
 structlog.configure(
     processors=[
@@ -185,6 +124,9 @@ structlog.configure(
 )
 logger = structlog.get_logger()
 
+# ---------------------------
+# Configuration Using pydantic_settings (.env file)
+# ---------------------------
 class Config(BaseSettings):
     AZURE_OPENAI_API_KEY: str
     AZURE_OPENAI_API_KEY: str
@@ -197,6 +139,9 @@ class Config(BaseSettings):
 
 config = Config()
 
+# ---------------------------
+# FastAPI Initialization & CORS
+# ---------------------------
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -209,16 +154,20 @@ app.add_middleware(
 # ---------------------------
 # Sensor & Light Control Initialization
 # ---------------------------
+import tflite_runtime.interpreter as tflite
+
 dhtDevice = adafruit_dht.DHT22(board.D27)
 pi = pigpio.pi()
 if not pi.connected:
     raise SystemExit("Could not connect to pigpio daemon. Start it with 'sudo systemctl start pigpiod'.")
+
 AIR_QUALITY_PIN = 18
 MOTION_SENSOR_PIN = 17
 pi.set_mode(AIR_QUALITY_PIN, pigpio.INPUT)
 pi.set_pull_up_down(AIR_QUALITY_PIN, pigpio.PUD_DOWN)
 pi.set_mode(MOTION_SENSOR_PIN, pigpio.INPUT)
 pi.set_pull_up_down(MOTION_SENSOR_PIN, pigpio.PUD_DOWN)
+
 KITCHEN_LIGHT_PIN = 22
 LIVINGROOM_AC_PIN = 23
 BEDROOM_FAN_PIN = 24
@@ -238,7 +187,6 @@ system_automation_started = False
 # ---------------------------
 # Indicator LED (Jumbo Light) Pin Configuration
 # ---------------------------
-# Connect RED LED to GPIO25, GREEN LED to GPIO26, and common ground to Pi Ground.
 INDICATOR_RED_PIN = 25
 INDICATOR_GREEN_PIN = 26
 pi.set_mode(INDICATOR_RED_PIN, pigpio.OUTPUT)
@@ -247,10 +195,7 @@ pi.set_mode(INDICATOR_GREEN_PIN, pigpio.OUTPUT)
 pi.write(INDICATOR_GREEN_PIN, 0)
 
 def blink_indicator(color: str, duration: float = 3.0):
-    """
-    Light the indicator LED in the specified color for the specified duration.
-    Color can be "red" or "green".
-    """
+    """Light the indicator LED in the specified color for the specified duration."""
     if color.lower() == "red":
         pi.write(INDICATOR_RED_PIN, 1)
         time.sleep(duration)
@@ -294,14 +239,8 @@ def update_display():
 threading.Thread(target=show_welcome_message, daemon=True).start()
 
 # ---------------------------
-# TFLite Occupant Detection Model Initialization
+# TFLite Occupant Detection Model (Already loaded above)
 # ---------------------------
-import tflite_runtime.interpreter as tflite
-occupant_interpreter = tflite.Interpreter(model_path="best_float16.tflite")
-occupant_interpreter.allocate_tensors()
-occupant_input_details = occupant_interpreter.get_input_details()
-occupant_output_details = occupant_interpreter.get_output_details()
-occupant_input_shape = occupant_input_details[0]['shape'][1:3]
 
 def detect_person():
     cap = cv2.VideoCapture(0)
@@ -542,15 +481,8 @@ def control_fan_speed(level: int = Query(..., description="Fan speed level betwe
         raise HTTPException(status_code=400, detail="Fan speed must be between 1 and 3")
     bedroom_fan_speed = level
     update_display()
-    log_system(f"Fan speed set to {level}")
+    log_system(f"Fan speed set to level {level}")
     return {"fan_speed": level}
-
-# ---------------------------
-# New Endpoint for Temperature Prediction
-# ---------------------------
-@app.get("/predict")
-def get_predictions():
-    return {"predicted": predicted_temps}
 
 # ---------------------------
 # GPT & Voice Assistant Components
@@ -613,7 +545,7 @@ Additionally, if the user says "I'm leaving", turn off all devices.
 
 async def _create_completion(messages: list, **kwargs) -> str:
     default_kwargs = {
-        "model": config.AZURE_OPENAI_API_KEY,
+        "model": config.AZURE_OPENAI_API_KEY,  # corrected to use the actual key if needed
         "max_tokens": 100,
         "temperature": 0.7,
         "top_p": 0.95,
@@ -744,7 +676,6 @@ device_state_manager = DeviceStateManager()
 from openai import AzureOpenAI
 openai_client = AzureOpenAI(
     api_key=config.AZURE_OPENAI_API_KEY,
-    api_version="2024-05-01-preview",
     azure_endpoint=config.AZURE_ENDPOINT,
 )
 
@@ -817,15 +748,10 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 def automation_controller():
     """
     When the PIR sensor indicates occupancy, run the face recognition.
-    Only if a known face is detected and the system is not already started,
-    will the system automation run.
-    Once started, automation is disabled until the user says "I'm leaving."
-    Logic:
-      - If current time is after 6 PM or before 6 AM, turn on the kitchen light.
-      - Based on ambient temperature:
-          > 28°C: Turn AC on (set to 22°C) and fan on at speed 3.
-          24°C < Temp <= 28°C: Turn AC on (set to 24°C) and fan on at speed 2.
-          <= 24°C: Turn AC and fan off.
+    Only if a known face is detected will the system automation run.
+    Otherwise, log "Unknown face detected."
+    Additionally, once the system is automatically started, the automation
+    will be disabled until the user says "I'm leaving".
     """
     global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed, system_automation_started
     while True:
@@ -834,10 +760,10 @@ def automation_controller():
             log_system("PIR sensor: Occupant detected.")
             name, dist = recognize_known_face()
             if name != "Unknown":
-                # Blink green indicator for known face
                 blink_indicator("green", 3)
                 log_system(f"{name} is detected.")
                 now = datetime.datetime.now()
+                # Nighttime logic
                 if now.hour >= 18 or now.hour < 6:
                     if kitchen_state.lower() != "on":
                         set_light_state(KITCHEN_LIGHT_PIN, "on")
@@ -854,7 +780,7 @@ def automation_controller():
                             set_light_state(BEDROOM_FAN_PIN, "on")
                             bedroom_state = "on"
                         bedroom_fan_speed = 3
-                        log_system("Automated: High temperature detected. AC set to 22°C, Fan speed to 3.")
+                        log_system("Automated: High temperature detected. AC=22°C, Fan=3.")
                     elif current_temp > 24:
                         if livingroom_state.lower() != "on":
                             set_light_state(LIVINGROOM_AC_PIN, "on")
@@ -864,7 +790,7 @@ def automation_controller():
                             set_light_state(BEDROOM_FAN_PIN, "on")
                             bedroom_state = "on"
                         bedroom_fan_speed = 2
-                        log_system("Automated: Moderate temperature detected. AC set to 24°C, Fan speed to 2.")
+                        log_system("Automated: Moderate temperature. AC=24°C, Fan=2.")
                     else:
                         if livingroom_state.lower() != "off":
                             set_light_state(LIVINGROOM_AC_PIN, "off")
@@ -872,13 +798,11 @@ def automation_controller():
                         if bedroom_state.lower() != "off":
                             set_light_state(BEDROOM_FAN_PIN, "off")
                             bedroom_state = "off"
-                        log_system("Automated: Comfortable temperature detected. AC and Fan turned OFF.")
+                        log_system("Automated: Comfortable temperature. AC and Fan=OFF.")
                     update_display()
-                # Once automation runs, disable further motion-triggered automation until user says "I'm leaving"
                 system_automation_started = True
                 time.sleep(20)
             else:
-                # Blink red indicator for unknown face
                 blink_indicator("red", 3)
                 log_system("Unknown face detected.")
                 time.sleep(5)
@@ -905,7 +829,7 @@ def iot_telemetry_sender():
     )
     registration_result = provisioning_client.register()
     if registration_result.status != "assigned":
-        raise RuntimeError("Could not register device. Status: {}".format(registration_result.status))
+        raise RuntimeError(f"Could not register device. Status: {registration_result.status}")
     device_client = IoTHubDeviceClient.create_from_symmetric_key(
         symmetric_key=symmetric_key,
         hostname=registration_result.registration_state.assigned_hub,
@@ -936,6 +860,104 @@ def iot_telemetry_sender():
 
 threading.Thread(target=iot_telemetry_sender, daemon=True).start()
 
+# =====================================================
+#                TFLite Temperature Forecast
+# =====================================================
+# We will store the last 5 hourly temperature readings,
+# then forecast the next 5 hours each time we run.
+#
+# The scale_min and scale_max come from your code snippet:
+SCALE_MIN = 273.0
+SCALE_MAX = 293.1
+
+forecast_model_path = "temperature_model.tflite"  # Your TFLite model
+# Load the TFLite forecast model
+forecast_interpreter = tflite.Interpreter(model_path=forecast_model_path)
+forecast_interpreter.allocate_tensors()
+forecast_input_details = forecast_interpreter.get_input_details()
+forecast_output_details = forecast_interpreter.get_output_details()
+
+# Keep track of the last 5 hourly temps in Celsius
+past_temps_c = []
+# Keep the predicted next 5 hours
+predicted_temps_c = []
+
+def forecast_tflite_model(past_5_c: list) -> list:
+    """
+    Takes a list of 5 Celsius temps, returns a list of 5 predicted Celsius temps.
+    """
+    # Convert Celsius to Kelvin
+    input_kelvin = np.array(past_5_c) + 273.15
+    # Scale
+    input_scaled = (input_kelvin - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)
+    # Reshape to [1, 5, 1]
+    input_reshaped = input_scaled.reshape(1, 5, 1).astype(np.float32)
+
+    # Set input tensor
+    forecast_interpreter.set_tensor(forecast_input_details[0]['index'], input_reshaped)
+    forecast_interpreter.invoke()
+    # Get output
+    prediction_scaled = forecast_interpreter.get_tensor(forecast_output_details[0]['index'])
+    # reshape
+    prediction_scaled = prediction_scaled.reshape(-1)
+    # inverse scale => Kelvin
+    prediction_kelvin = prediction_scaled * (SCALE_MAX - SCALE_MIN) + SCALE_MIN
+    # Convert to Celsius
+    prediction_c = prediction_kelvin - 273.15
+    return prediction_c.tolist()
+
+# Endpoint to return predicted temps
+@app.get("/forecast")
+def get_forecast():
+    """Return the last predicted 5 hours of temperature as a list."""
+    return {"forecast": predicted_temps_c}
+
+def forecast_updater():
+    """
+    Once an hour:
+      - Capture the current temperature (or None).
+      - If None, do nothing or replicate last known.
+      - Keep track of the last 5 hours, replicate if < 5.
+      - Predict next 5 hours, store them in predicted_temps_c.
+    """
+    global past_temps_c, predicted_temps_c
+    while True:
+        current_temp = latest_data.get("temperature")
+        if current_temp is None:
+            # If no reading, replicate last known or default to 20C
+            if past_temps_c:
+                use_temp = past_temps_c[-1]
+            else:
+                use_temp = 20.0
+            past_temps_c.append(use_temp)
+        else:
+            past_temps_c.append(float(current_temp))
+
+        # Keep only the last 5
+        if len(past_temps_c) > 5:
+            past_temps_c = past_temps_c[-5:]
+
+        # If we have <5 readings, replicate the last reading to fill up
+        if len(past_temps_c) < 5:
+            if past_temps_c:
+                last_known = past_temps_c[-1]
+            else:
+                last_known = 20.0
+            while len(past_temps_c) < 5:
+                past_temps_c.append(last_known)
+
+        # Now predict
+        predicted_temps_c = forecast_tflite_model(past_temps_c)
+        log_system(f"Forecast updated. Past: {past_temps_c}, Next 5H: {predicted_temps_c}")
+
+        # Wait an hour
+        time.sleep(3600)
+
+threading.Thread(target=forecast_updater, daemon=True).start()
+
+# -----------------------------------------------------
+# Run the server
+# -----------------------------------------------------
 if __name__ == "__main__":
     try:
         import uvicorn

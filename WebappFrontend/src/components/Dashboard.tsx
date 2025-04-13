@@ -19,13 +19,29 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { SensorData } from '../types';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS, CategoryScale, LinearScale,
-  PointElement, LineElement, Title, Tooltip, Legend
-} from 'chart.js';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+// For the forecast chart
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title as ChartTitle,
+  Tooltip,
+  Legend
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  ChartTitle,
+  Tooltip,
+  Legend
+);
 
 export default function Dashboard() {
   const user = useAuthStore((state) => state.user);
@@ -39,16 +55,16 @@ export default function Dashboard() {
   const [livingRoomAc, setLivingRoomAc] = useState(false);
   const [bedroomFan, setBedroomFan] = useState(false);
 
-  // NEW: States for AC Temperature and Fan Speed
+  // States for AC Temperature and Fan Speed
   const [acTemp, setAcTemp] = useState<number>(24);
   const [fanSpeed, setFanSpeed] = useState<number>(1);
-
-  // NEW: State for predicted temperatures (an array of five numbers)
-  const [predictedTemps, setPredictedTemps] = useState<number[]>([]);
 
   // Logs
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
   const [voiceLogs, setVoiceLogs] = useState<any[]>([]);
+
+  // NEW: Forecast data
+  const [forecastData, setForecastData] = useState<number[]>([]);
 
   // Poll sensor data
   useEffect(() => {
@@ -70,7 +86,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll lights state, including AC temp and Fan speed
+  // Poll lights state
   useEffect(() => {
     const fetchLights = async () => {
       try {
@@ -87,23 +103,6 @@ export default function Dashboard() {
     };
     fetchLights();
     const interval = setInterval(fetchLights, 3000); 
-    return () => clearInterval(interval);
-  }, []);
-
-  // Poll predictions (line graph data)
-  useEffect(() => {
-    const fetchPredictions = async () => {
-      try {
-        const res = await fetch("http://192.168.1.13:8000/predict");
-        const data = await res.json();
-        setPredictedTemps(data.predicted || []);
-      } catch (error) {
-        console.error("Error fetching predicted temperatures", error);
-      }
-    };
-    // For demonstration, poll every 10 seconds; in production, you might poll less frequently (e.g., every hour)
-    fetchPredictions();
-    const interval = setInterval(fetchPredictions, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -139,7 +138,24 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Toggle function for on/off switches
+  // Poll forecast data
+  useEffect(() => {
+    const fetchForecast = async () => {
+      try {
+        const res = await fetch("http://192.168.1.13:8000/forecast");
+        const data = await res.json();
+        // data.forecast => array of 5 predicted temps
+        setForecastData(data.forecast);
+      } catch (error) {
+        console.error("Error fetching forecast data", error);
+      }
+    };
+    fetchForecast();
+    const interval = setInterval(fetchForecast, 3600000); // fetch once an hour
+    return () => clearInterval(interval);
+  }, []);
+
+  // Toggle function
   const toggleLight = async (light: string) => {
     let newState: boolean;
     let endpoint = "";
@@ -176,7 +192,7 @@ export default function Dashboard() {
     }
   };
 
-  // Functions to download logs as JSON files
+  // Download logs
   const downloadSystemLogs = async () => {
     try {
       const res = await fetch("http://192.168.1.13:8000/logs");
@@ -209,31 +225,18 @@ export default function Dashboard() {
     }
   };
 
-  // Setup data for the line graph (predicted temperatures)
-  const chartData = {
-    labels: ['Hour 1', 'Hour 2', 'Hour 3', 'Hour 4', 'Hour 5'],
+  // Prepare chart data for forecast (5 points)
+  const forecastChartData = {
+    labels: ["+1h", "+2h", "+3h", "+4h", "+5h"],
     datasets: [
       {
-        label: 'Predicted Temp (°C)',
-        data: predictedTemps,
-        fill: false,
-        backgroundColor: 'rgba(75,192,192,0.4)',
-        borderColor: 'rgba(75,192,192,1)'
+        label: "Forecast (°C)",
+        data: forecastData.map((temp) => Number(temp.toFixed(2))),
+        borderColor: "rgba(75,192,192,1)",
+        backgroundColor: "rgba(75,192,192,0.1)",
+        tension: 0.3
       }
     ]
-  };
-
-  const chartOptions = {
-    responsive: true,
-    plugins: {
-      legend: {
-        position: 'top' as const,
-      },
-      title: {
-        display: true,
-        text: 'Next 5 Hours Temperature Prediction'
-      }
-    }
   };
 
   return (
@@ -263,9 +266,9 @@ export default function Dashboard() {
         {/* Sensor Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {[
-            { icon: Thermometer, label: 'Room Temperature', value: `${liveSensors?.temperature || 0}°C`, color: 'text-orange-400' },
-            { icon: Droplets, label: 'Humidity', value: `${liveSensors?.humidity || 0}%`, color: 'text-blue-400' },
-            { icon: Wind, label: 'Air Quality', value: liveSensors?.airQuality || 'N/A', color: 'text-purple-400' }
+            { icon: Thermometer, label: 'Room Temperature', value: `${liveSensors?.temperature ?? 0}°C`, color: 'text-orange-400' },
+            { icon: Droplets, label: 'Humidity', value: `${liveSensors?.humidity ?? 0}%`, color: 'text-blue-400' },
+            { icon: Wind, label: 'Air Quality', value: liveSensors?.airQuality ?? 'N/A', color: 'text-purple-400' }
           ].map((sensor, index) => (
             <motion.div
               key={index}
@@ -282,8 +285,9 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Device Control Toggles for Lights */}
+        {/* Device Control Toggles */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {/* Kitchen Light */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -307,6 +311,7 @@ export default function Dashboard() {
             </motion.button>
           </motion.div>
 
+          {/* Living Room AC */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -330,6 +335,7 @@ export default function Dashboard() {
             </motion.button>
           </motion.div>
 
+          {/* Bedroom Fan */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -354,9 +360,9 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
-        {/* AC Temperature and Fan Speed Controls */}
+        {/* AC Temp & Fan Speed Sliders */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          {/* AC Temperature Control */}
+          {/* AC Temp Control */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -437,29 +443,43 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
-        {/* Temperature Prediction Line Chart */}
-        <div className="mb-8 bg-[#141414] p-6 rounded-xl border border-[#1F1F1F]">
-          <h2 className="text-xl font-semibold text-white mb-4">Next 5 Hours Temperature Prediction</h2>
-          <Line data={{
-              labels: ['Hour 1', 'Hour 2', 'Hour 3', 'Hour 4', 'Hour 5'],
-              datasets: [{
-                label: 'Predicted Temperature (°C)',
-                data: predictedTemps,
-                fill: false,
-                backgroundColor: 'rgba(75,192,192,0.4)',
-                borderColor: 'rgba(75,192,192,1)',
-              }]
-            }}
-            options={{
-              responsive: true,
-              plugins: {
-                legend: { position: 'top' as const },
-                title: { display: true, text: 'Predicted Temperature for Next 5 Hours' },
-              },
-            }} />
-        </div>
+        {/* Forecast Chart */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8 bg-[#141414] p-6 rounded-xl border border-[#1F1F1F]"
+        >
+          <h3 className="text-lg font-semibold text-white mb-4">Next 5 Hours Forecast</h3>
+          <div className="h-64">
+            <Line
+              data={forecastChartData}
+              options={{
+                responsive: true,
+                plugins: {
+                  legend: {
+                    display: true,
+                  },
+                },
+                scales: {
+                  y: {
+                    title: {
+                      display: true,
+                      text: "°C",
+                    },
+                  },
+                  x: {
+                    title: {
+                      display: true,
+                      text: "Hours Ahead",
+                    },
+                  },
+                },
+              }}
+            />
+          </div>
+        </motion.div>
 
-        {/* Camera and Logs */}
+        {/* Camera + System Logs */}
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Camera */}
           <motion.div
@@ -504,7 +524,7 @@ export default function Dashboard() {
             )}
           </motion.div>
 
-          {/* System Logs with Download Button */}
+          {/* System Logs + Download */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -525,7 +545,9 @@ export default function Dashboard() {
             <div className="space-y-4 max-h-48 overflow-y-auto pr-2">
               {systemLogs.map((log, i) => (
                 <div key={i} className="text-sm">
-                  <span className="text-gray-500 mr-2">{new Date(log.timestamp * 1000).toLocaleTimeString()}</span>
+                  <span className="text-gray-500 mr-2">
+                    {new Date(log.timestamp * 1000).toLocaleTimeString()}
+                  </span>
                   {log.message}
                 </div>
               ))}
@@ -533,6 +555,7 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
+        {/* Voice Logs + Download */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
