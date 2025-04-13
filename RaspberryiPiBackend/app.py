@@ -540,8 +540,16 @@ def temperature_prediction_updater():
     """
     global temperature_history, latest_temperature_prediction, latest_data
     while True:
-        # Get the current temperature reading from sensor data (default to 20°C if unavailable)
-        current_temp = latest_data.get("temperature", 20.0)
+        # Get the current temperature reading from sensor data.
+        current_temp = latest_data.get("temperature")
+        # If current sensor reading is None, use the last valid reading or a default value.
+        if current_temp is None:
+            if temperature_history and temperature_history[-1] is not None:
+                current_temp = temperature_history[-1]
+            else:
+                current_temp = 20.0  # default value if no previous valid reading exists
+
+        # Ensure that we have a full history of valid values.
         if len(temperature_history) < 5:
             temperature_history = [current_temp] * 5
         else:
@@ -553,7 +561,8 @@ def temperature_prediction_updater():
         except Exception as e:
             logger.error("Temperature prediction error", error=str(e))
             latest_temperature_prediction = []
-        time.sleep(10)
+        # Sleep for 1 hour (3600 seconds); adjust the interval for testing if needed.
+        time.sleep(3600)
 
 
 threading.Thread(target=temperature_prediction_updater, daemon=True).start()
