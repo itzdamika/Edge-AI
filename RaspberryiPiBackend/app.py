@@ -856,23 +856,31 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 def automation_controller():
     """
-    When the PIR sensor indicates occupancy, run face recognition.
+    When the PIR sensor indicates occupancy and the camera-based occupant detection
+    confirms a person is present, run face recognition.
     Only if a known face is detected will the system automation run.
     Otherwise, log "Unknown face detected" and send an email notification.
     Additionally, once the system is automatically started, the automation
     will be disabled until the user says "I'm leaving".
+
+    Logic:
+      - If current time is after 6 PM or before 6 AM, turn on the kitchen light.
+      - Based on ambient temperature:
+          > 28°C: Turn AC on (set to 22°C) and fan on at speed 3.
+          24°C < Temp <= 28°C: Turn AC on (set to 24°C) and fan on at speed 2.
+          <= 24°C: Turn AC and fan off.
     """
     global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed, system_automation_started
     while True:
         motion = latest_data.get('motion', False)
-        if motion and not system_automation_started:
-            log_system("PIR sensor: Occupant detected.")
+        # Only run face recognition if both the PIR sensor detects motion
+        # and the camera occupant detection model confirms occupancy.
+        if motion and detect_person() and not system_automation_started:
+            log_system("Occupant detected by PIR and camera.")
             name, dist = recognize_known_face()
             if name != "Unknown":
-                # Blink green indicator for known face
                 blink_indicator("green", 3)
                 log_system(f"{name} is detected.")
-                # (Automation actions based on time and temperature here...)
                 now = datetime.datetime.now()
                 if now.hour >= 18 or now.hour < 6:
                     if kitchen_state.lower() != "on":
@@ -913,12 +921,13 @@ def automation_controller():
                 system_automation_started = True
                 time.sleep(20)
             else:
-                # Unknown face detected: blink red, log, and send an email notification
+                # If face recognition returns "Unknown", signal via red indicator and send email.
                 blink_indicator("red", 3)
                 log_system("Unknown face detected.")
-                send_email_notification() 
+                send_email_notification()
                 time.sleep(5)
         else:
+            # If either PIR or camera detection fails, simply sleep a bit before checking again.
             time.sleep(2)
 
 threading.Thread(target=automation_controller, daemon=True).start()
