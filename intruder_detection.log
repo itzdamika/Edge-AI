@@ -10,3 +10,26 @@
 2025-04-12 20:41:01,302:INFO:[+] Recognized: gaindu
 2025-04-12 20:41:01,302:INFO:Recognition cycle took 0.0615 seconds
 2025-04-12 20:41:02,320:INFO:System terminated.
+2025-04-12 20:41:57,578:INFO:Starting intruder detection system.
+2025-04-12 20:41:57,903:INFO:Loaded 1 face embeddings
+2025-04-12 20:41:58,311:INFO:Starting video capture loop
+2025-04-12 20:42:00,014:WARNING:[!] ALERT: Unrecognized face!
+2025-04-12 20:42:00,014:INFO:Recognition cycle took 0.0825 seconds
+2025-04-12 20:42:00,391:INFO:[+] Recognized: gaindu
+2025-04-12 20:42:00,391:INFO:Recognition cycle took 0.0658 seconds
+2025-04-12 20:42:01,382:INFO:System terminated.
+2025-04-12 20:42:04,338:INFO:Starting intruder detection system.
+2025-04-12 20:42:04,653:INFO:Loaded 1 face embeddings
+2025-04-12 20:42:04,994:INFO:Starting video capture loop
+2025-04-12 20:42:06,941:INFO:[+] Recognized: gaindu
+2025-04-12 20:42:06,941:INFO:Recognition cycle took 0.0605 seconds
+2025-04-12 20:42:07,171:INFO:Recognition cycle took 0.0168 seconds
+2025-04-12 20:42:08,232:INFO:System terminated.
+2025-04-13 09:40:07,169:INFO:Starting intruder detection system.
+2025-04-13 09:40:07,536:INFO:Loaded 1 face embeddings
+2025-04-13 09:40:08,245:INFO:Starting video capture loop
+2025-04-13 09:40:15,449:INFO:System terminated.
+2025-04-13 09:43:14,049:INFO:Starting intruder detection system.
+2025-04-13 09:43:14,336:INFO:Loaded 1 face embeddings
+2025-04-13 09:43:14,641:INFO:Starting video capture loop
+2025-04-13 09:43:33,095:INFO:System terminated.
