@@ -171,17 +171,19 @@ for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
 
-# Global state variables for on/off
 kitchen_state = "off"
 livingroom_state = "off"
 bedroom_state = "off"
 livingroom_ac_temp = 24
 bedroom_fan_speed = 1
 
+# NEW: Global flag to indicate system automation is active
+system_automation_started = False
+
 # ---------------------------
 # Indicator LED (Jumbo Light) Pin Configuration
 # ---------------------------
-# Connect RED LED to GPIO25, GREEN LED to GPIO26, and common ground.
+# Connect RED LED to GPIO25, GREEN LED to GPIO26, and common ground to Pi Ground.
 INDICATOR_RED_PIN = 25
 INDICATOR_GREEN_PIN = 26
 pi.set_mode(INDICATOR_RED_PIN, pigpio.OUTPUT)
@@ -191,7 +193,7 @@ pi.write(INDICATOR_GREEN_PIN, 0)
 
 def blink_indicator(color: str, duration: float = 3.0):
     """
-    Light the indicator LED in the specified color for a given duration.
+    Light the indicator LED in the specified color for the specified duration.
     Color can be "red" or "green".
     """
     if color.lower() == "red":
@@ -561,7 +563,7 @@ async def _create_completion(messages: list, **kwargs) -> str:
     return response.choices[0].message.content.strip()
 
 async def handle_commands(user_message: str) -> str:
-    global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed
+    global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed, system_automation_started
     lowered = user_message.lower()
     if "i'm leaving" in lowered or "i am leaving" in lowered or "im leaving" in lowered:
         set_light_state(KITCHEN_LIGHT_PIN, "off")
@@ -572,6 +574,7 @@ async def handle_commands(user_message: str) -> str:
         bedroom_state = "off"
         update_display()
         log_system("User command: I'm leaving. All devices turned OFF.")
+        system_automation_started = False
         return "Turning off all devices."
     messages = [
         {"role": "system", "content": command_prompt},
@@ -754,7 +757,8 @@ def automation_controller():
     When the PIR sensor indicates occupancy, run the face recognition.
     Only if a known face is detected will the system automation run.
     Otherwise, log "Unknown face detected."
-    Also log PIR sensor and camera detections.
+    Additionally, once the system is automatically started, the automation
+    will be disabled until the user says "I'm leaving".
     Logic:
       - If current time is after 6 PM or before 6 AM, turn on the kitchen light.
       - Based on ambient temperature:
@@ -762,14 +766,14 @@ def automation_controller():
           24°C < Temp <= 28°C: Turn AC on (set to 24°C) and fan on at speed 2.
           <= 24°C: Turn AC and fan off.
     """
-    global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed
+    global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed, system_automation_started
     while True:
         motion = latest_data.get('motion', False)
-        if motion:
+        if motion and not system_automation_started:
             log_system("PIR sensor: Occupant detected.")
             name, dist = recognize_known_face()
             if name != "Unknown":
-                # Blink the indicator green for 3 seconds if a known face is detected
+                # Blink green indicator for known face
                 blink_indicator("green", 3)
                 log_system(f"{name} is detected.")
                 now = datetime.datetime.now()
@@ -809,13 +813,16 @@ def automation_controller():
                             bedroom_state = "off"
                         log_system("Automated: Comfortable temperature detected. AC and Fan turned OFF.")
                     update_display()
+                # Once automation runs, disable further motion-triggered automation until user says "I'm leaving"
+                system_automation_started = True
                 time.sleep(20)
             else:
-                # Blink red indicator for 3 seconds if unknown face is detected
+                # Blink red indicator for unknown face
                 blink_indicator("red", 3)
                 log_system("Unknown face detected.")
                 time.sleep(5)
         else:
+            # If no motion detected or system already active, sleep a bit.
             time.sleep(2)
 
 threading.Thread(target=automation_controller, daemon=True).start()
