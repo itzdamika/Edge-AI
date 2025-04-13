@@ -19,6 +19,37 @@ from fastapi.responses import StreamingResponse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel
 import numpy as np
+import smtplib
+from email.message import EmailMessage
+
+
+def send_email_notification():
+    # Email credentials and recipient
+    email_sender = "contact.smartaura@gmail.com"
+    email_password = "wcxn qqis eioe lkbx"  # your Gmail app password
+    email_receiver = "damikaudantha@gmail.com"
+    
+    subject = "Unknown face detected warning"
+    body = "Warning: An unknown face has been detected by SmartAura."
+    
+    # Create the email message
+    em = EmailMessage()
+    em['From'] = email_sender
+    em['To'] = email_receiver
+    em['Subject'] = subject
+    em.set_content(body)
+    
+    try:
+        # Connect to the Gmail SMTP server using TLS
+        with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.login(email_sender, email_password)
+            smtp.send_message(em)
+            logging.info("Email sent successfully to %s", email_receiver)
+    except Exception as e:
+        logging.error("Failed to send email notification: %s", e)
+
 
 # ---------------------------
 # Face Recognition Imports & Setup
@@ -825,17 +856,11 @@ threading.Thread(target=start_voice_assistant, daemon=True).start()
 # ---------------------------
 def automation_controller():
     """
-    When the PIR sensor indicates occupancy, run the face recognition.
+    When the PIR sensor indicates occupancy, run face recognition.
     Only if a known face is detected will the system automation run.
-    Otherwise, log "Unknown face detected."
+    Otherwise, log "Unknown face detected" and send an email notification.
     Additionally, once the system is automatically started, the automation
     will be disabled until the user says "I'm leaving".
-    Logic:
-      - If current time is after 6 PM or before 6 AM, turn on the kitchen light.
-      - Based on ambient temperature:
-          > 28°C: Turn AC on (set to 22°C) and fan on at speed 3.
-          24°C < Temp <= 28°C: Turn AC on (set to 24°C) and fan on at speed 2.
-          <= 24°C: Turn AC and fan off.
     """
     global kitchen_state, livingroom_state, bedroom_state, livingroom_ac_temp, bedroom_fan_speed, system_automation_started
     while True:
@@ -844,8 +869,10 @@ def automation_controller():
             log_system("PIR sensor: Occupant detected.")
             name, dist = recognize_known_face()
             if name != "Unknown":
+                # Blink green indicator for known face
                 blink_indicator("green", 3)
                 log_system(f"{name} is detected.")
+                # (Automation actions based on time and temperature here...)
                 now = datetime.datetime.now()
                 if now.hour >= 18 or now.hour < 6:
                     if kitchen_state.lower() != "on":
@@ -886,8 +913,10 @@ def automation_controller():
                 system_automation_started = True
                 time.sleep(20)
             else:
+                # Unknown face detected: blink red, log, and send an email notification
                 blink_indicator("red", 3)
                 log_system("Unknown face detected.")
+                send_email_notification() 
                 time.sleep(5)
         else:
             time.sleep(2)
