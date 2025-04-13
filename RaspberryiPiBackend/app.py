@@ -553,8 +553,8 @@ def temperature_prediction_updater():
         except Exception as e:
             logger.error("Temperature prediction error", error=str(e))
             latest_temperature_prediction = []
-        # Sleep for 1 hour; adjust interval for testing purposes if needed
-        time.sleep(3600)
+        time.sleep(10)
+
 
 threading.Thread(target=temperature_prediction_updater, daemon=True).start()
 

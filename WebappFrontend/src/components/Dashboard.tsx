@@ -140,6 +140,7 @@ export default function Dashboard() {
         const res = await fetch("http://192.168.1.13:8000/temperature_prediction");
         const data = await res.json();
         // data.temperature_prediction is expected to be an array of 5 predicted values
+        console.log(data.temperature_prediction);
         setPredictedTemps(data.temperature_prediction);
       } catch (error) {
         console.error("Error fetching temperature prediction:", error);
