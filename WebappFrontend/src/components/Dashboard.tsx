@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -20,27 +20,48 @@ import {
 import toast from 'react-hot-toast';
 import type { SensorData } from '../types';
 
+// Import Chart.js and react-chartjs-2 components for the temperature prediction graph
+import { Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+
 export default function Dashboard() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
 
-  const [showCamera, setShowCamera] = useState(false);
+  // State for live sensor data
   const [liveSensors, setLiveSensors] = useState<SensorData | null>(null);
 
-  // States for lights
+  // States for device control toggles
   const [kitchenLight, setKitchenLight] = useState(false);
   const [livingRoomAc, setLivingRoomAc] = useState(false);
   const [bedroomFan, setBedroomFan] = useState(false);
 
-  // NEW: States for AC Temperature and Fan Speed
+  // States for AC Temperature and Fan Speed
   const [acTemp, setAcTemp] = useState<number>(24);
   const [fanSpeed, setFanSpeed] = useState<number>(1);
 
-  // Logs
+  // Logs state
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
   const [voiceLogs, setVoiceLogs] = useState<any[]>([]);
 
-  // Poll sensor data
+  // State for controlling camera visibility
+  const [showCamera, setShowCamera] = useState(false);
+
+  // NEW: State for predicted temperature (next 5 hours)
+  const [predictedTemps, setPredictedTemps] = useState<number[]>([]);
+
+  // Poll sensor data every 5 seconds
   useEffect(() => {
     const fetchLiveData = async () => {
       try {
@@ -60,7 +81,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll lights state, including AC temp and Fan speed
+  // Poll light state, including AC temp and Fan speed every 3 seconds
   useEffect(() => {
     const fetchLights = async () => {
       try {
@@ -76,11 +97,11 @@ export default function Dashboard() {
       }
     };
     fetchLights();
-    const interval = setInterval(fetchLights, 3000); 
+    const interval = setInterval(fetchLights, 3000);
     return () => clearInterval(interval);
   }, []);
 
-  // Poll system logs
+  // Poll system logs every 3 seconds
   useEffect(() => {
     const fetchLogs = async () => {
       try {
@@ -96,7 +117,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll voice logs
+  // Poll voice logs every 3 seconds
   useEffect(() => {
     const fetchVoiceLogs = async () => {
       try {
@@ -112,7 +133,42 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Toggle function for on/off switches
+  // Poll temperature prediction every 10 seconds for demo (adjust interval as needed)
+  useEffect(() => {
+    const fetchPrediction = async () => {
+      try {
+        const res = await fetch("http://192.168.1.13:8000/temperature_prediction");
+        const data = await res.json();
+        // data.temperature_prediction is expected to be an array of 5 predicted values
+        setPredictedTemps(data.temperature_prediction);
+      } catch (error) {
+        console.error("Error fetching temperature prediction:", error);
+        toast.error("Error fetching temperature prediction");
+      }
+    };
+
+    fetchPrediction();
+    const interval = setInterval(fetchPrediction, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Prepare chart data for temperature prediction graph
+  const chartLabels = ["+1h", "+2h", "+3h", "+4h", "+5h"];
+  const chartData = {
+    labels: chartLabels,
+    datasets: [
+      {
+        label: "Predicted Temperature (°C)",
+        data: predictedTemps,
+        fill: false,
+        borderColor: "rgb(75, 192, 192)",
+        backgroundColor: "rgba(75, 192, 192, 0.2)",
+        tension: 0.1
+      }
+    ]
+  };
+
+  // Toggle function for device on/off controls
   const toggleLight = async (light: string) => {
     let newState: boolean;
     let endpoint = "";
@@ -149,7 +205,7 @@ export default function Dashboard() {
     }
   };
 
-  // Functions to download logs as JSON files
+  // Functions for downloading logs as JSON files
   const downloadSystemLogs = async () => {
     try {
       const res = await fetch("http://192.168.1.13:8000/logs");
@@ -185,6 +241,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-gray-300 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
+        {/* Dashboard Header */}
         <header className="flex justify-between items-center mb-8">
           <motion.h1 
             initial={{ opacity: 0, x: -20 }}
@@ -226,6 +283,12 @@ export default function Dashboard() {
               <p className="text-3xl font-bold mt-2">{sensor.value}</p>
             </motion.div>
           ))}
+        </div>
+
+        {/* Temperature Prediction Graph */}
+        <div className="bg-[#141414] p-6 rounded-xl border border-[#1F1F1F] mb-8">
+          <h2 className="text-xl font-semibold text-white mb-4">Temperature Prediction (Next 5 Hours)</h2>
+          <Line data={chartData} />
         </div>
 
         {/* Device Control Toggles for Lights */}
@@ -319,7 +382,7 @@ export default function Dashboard() {
                 max="32"
                 value={acTemp}
                 onChange={e => setAcTemp(Number(e.target.value))}
-                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 "
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
               <span className="ml-4 text-white">{acTemp}°C</span>
             </div>
@@ -457,6 +520,7 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
+        {/* Voice Logs with Download Button */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
