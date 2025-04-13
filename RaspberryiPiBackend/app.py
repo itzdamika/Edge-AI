@@ -19,7 +19,6 @@ from fastapi.responses import StreamingResponse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel
 import numpy as np
-import tensorflow as tf  # Needed for temperature prediction TFLite model
 
 # ---------------------------
 # Face Recognition Imports & Setup
@@ -502,7 +501,7 @@ def predict_temperature(model_path: str, input_temps: list) -> list:
     Uses a TFLite model with built-in MinMax scaling.
     """
     # Load the TFLite model
-    interpreter = tf.lite.Interpreter(model_path=model_path)
+    interpreter = tflite.Interpreter(model_path=model_path)
     interpreter.allocate_tensors()
     
     # Get input and output tensor details
