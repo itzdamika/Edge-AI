@@ -820,8 +820,8 @@ def iot_telemetry_sender():
                 "Humidity": latest_data.get("humidity"),
                 "AirQuality": latest_data.get("air_quality"),
                 "Motion": latest_data.get("motion"),
-                "AC_Temp": livingroom_ac_temp,
-                "Fan_Speed": bedroom_fan_speed,
+                "ACTemperature": livingroom_ac_temp,
+                "FanSpeed": bedroom_fan_speed,
                 "Timestamp": time.time()
             }
             msg = Message(json.dumps(telemetry))
