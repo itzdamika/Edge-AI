@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel
 import numpy as np
+import tensorflow as tf  # For temperature prediction
 
 # ---------------------------
 # Face Recognition Imports & Setup
@@ -99,15 +100,68 @@ def recognize_known_face():
         return "Unknown", min_distance
 
 # ---------------------------
-# Pydantic Model & Config
+# Temperature Prediction Functions
+# ---------------------------
+def predict_future_temperatures(input_temps):
+    """
+    Predicts the next 5 hours temperature (in Celsius) using the past 5 hours temperature.
+    Model scaling is applied with hardcoded min/max based on training data.
+    """
+    # Hardcoded scaling parameters for MinMaxScaler in Kelvin
+    scale_min = 273.0
+    scale_max = 293.1
+    input_data = np.array(input_temps, dtype=np.float32)
+    input_kelvin = input_data + 273.15
+    input_scaled = (input_kelvin - scale_min) / (scale_max - scale_min)
+    input_reshaped = input_scaled.reshape(1, 5, 1).astype(np.float32)
+    interpreter = tf.lite.Interpreter(model_path="temperature_model.tflite")
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    interpreter.set_tensor(input_details[0]['index'], input_reshaped)
+    interpreter.invoke()
+    prediction_scaled = interpreter.get_tensor(output_details[0]['index'])
+    prediction_reshaped = prediction_scaled.reshape(-1)
+    prediction_kelvin = prediction_reshaped * (scale_max - scale_min) + scale_min
+    prediction_celsius = prediction_kelvin - 273.15
+    return prediction_celsius.tolist()
+
+# Global variables for temperature prediction
+temp_history = []      # List of past temperature readings (last 5 hours)
+predicted_temps = []   # Predicted temperatures for next 5 hours
+
+def temperature_prediction_updater():
+    """
+    Every hour, update the temperature history with the current temperature reading from sensors.
+    If there are fewer than 5 readings, replicate the current temperature.
+    Then predict the next 5 hours' temperature using the TFLite model.
+    """
+    global temp_history, predicted_temps
+    while True:
+        # Wait for one hour; for testing, you may reduce this value (e.g., 30 seconds)
+        time.sleep(3600)  
+        current_temp = latest_data.get("temperature")
+        if current_temp is not None:
+            temp_history.append(current_temp)
+        if len(temp_history) < 5:
+            input_temps = [current_temp if current_temp is not None else 24.0] * 5
+        else:
+            input_temps = temp_history[-5:]
+        try:
+            predicted_temps = predict_future_temperatures(input_temps)
+            log_system(f"Predicted next 5 hours temperature: {predicted_temps}")
+        except Exception as e:
+            log_system(f"Error in temperature prediction: {e}")
+
+threading.Thread(target=temperature_prediction_updater, daemon=True).start()
+
+# ---------------------------
+# Pydantic Model & Config (again, for backend)
 # ---------------------------
 class LoginRequest(BaseModel):
     username: str
     password: str
 
-# ---------------------------
-# Logging Configuration
-# ---------------------------
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
 structlog.configure(
     processors=[
@@ -124,9 +178,6 @@ structlog.configure(
 )
 logger = structlog.get_logger()
 
-# ---------------------------
-# Configuration Using pydantic_settings (.env file)
-# ---------------------------
 class Config(BaseSettings):
     AZURE_OPENAI_API_KEY: str
     AZURE_OPENAI_API_KEY: str
@@ -139,9 +190,6 @@ class Config(BaseSettings):
 
 config = Config()
 
-# ---------------------------
-# FastAPI Initialization & CORS
-# ---------------------------
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -176,14 +224,11 @@ livingroom_state = "off"
 bedroom_state = "off"
 livingroom_ac_temp = 24
 bedroom_fan_speed = 1
-
-# NEW: Global flag to indicate system automation is active
 system_automation_started = False
 
 # ---------------------------
 # Indicator LED (Jumbo Light) Pin Configuration
 # ---------------------------
-# Connect RED LED to GPIO25, GREEN LED to GPIO26, and common ground to Pi Ground.
 INDICATOR_RED_PIN = 25
 INDICATOR_GREEN_PIN = 26
 pi.set_mode(INDICATOR_RED_PIN, pigpio.OUTPUT)
@@ -192,10 +237,6 @@ pi.set_mode(INDICATOR_GREEN_PIN, pigpio.OUTPUT)
 pi.write(INDICATOR_GREEN_PIN, 0)
 
 def blink_indicator(color: str, duration: float = 3.0):
-    """
-    Light the indicator LED in the specified color for the specified duration.
-    Color can be "red" or "green".
-    """
     if color.lower() == "red":
         pi.write(INDICATOR_RED_PIN, 1)
         time.sleep(duration)
@@ -487,8 +528,16 @@ def control_fan_speed(level: int = Query(..., description="Fan speed level betwe
         raise HTTPException(status_code=400, detail="Fan speed must be between 1 and 3")
     bedroom_fan_speed = level
     update_display()
-    log_system(f"Fan speed set to level {level}")
+    log_system(f"Fan speed set to {level}")
     return {"fan_speed": level}
+
+# ---------------------------
+# New Endpoint for Temperature Prediction
+# ---------------------------
+@app.get("/predict")
+def get_predictions():
+    return {"predicted": predicted_temps}
+
 
 # ---------------------------
 # GPT & Voice Assistant Components
@@ -551,7 +600,7 @@ Additionally, if the user says "I'm leaving", turn off all devices.
 
 async def _create_completion(messages: list, **kwargs) -> str:
     default_kwargs = {
-        "model": config.AZURE_OPENAI_DEPLOYMENT_ID,
+        "model": config.AZURE_OPENAI_API_KEY,
         "max_tokens": 100,
         "temperature": 0.7,
         "top_p": 0.95,
@@ -757,8 +806,8 @@ def automation_controller():
     When the PIR sensor indicates occupancy, run the face recognition.
     Only if a known face is detected will the system automation run.
     Otherwise, log "Unknown face detected."
-    Additionally, once the system is automatically started, the automation
-    will be disabled until the user says "I'm leaving".
+    Additionally, once the system is automatically started,
+    the automation is disabled until the user says "I'm leaving".
     Logic:
       - If current time is after 6 PM or before 6 AM, turn on the kitchen light.
       - Based on ambient temperature:
@@ -813,7 +862,7 @@ def automation_controller():
                             bedroom_state = "off"
                         log_system("Automated: Comfortable temperature detected. AC and Fan turned OFF.")
                     update_display()
-                # Once automation runs, disable further motion-triggered automation until user says "I'm leaving"
+                # Disable motion automation until user says "I'm leaving"
                 system_automation_started = True
                 time.sleep(20)
             else:
@@ -822,7 +871,6 @@ def automation_controller():
                 log_system("Unknown face detected.")
                 time.sleep(5)
         else:
-            # If no motion detected or system already active, sleep a bit.
             time.sleep(2)
 
 threading.Thread(target=automation_controller, daemon=True).start()

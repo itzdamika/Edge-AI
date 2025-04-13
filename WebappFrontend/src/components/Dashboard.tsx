@@ -19,6 +19,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { SensorData } from '../types';
+import { Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS, CategoryScale, LinearScale,
+  PointElement, LineElement, Title, Tooltip, Legend
+} from 'chart.js';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function Dashboard() {
   const user = useAuthStore((state) => state.user);
@@ -35,6 +42,9 @@ export default function Dashboard() {
   // NEW: States for AC Temperature and Fan Speed
   const [acTemp, setAcTemp] = useState<number>(24);
   const [fanSpeed, setFanSpeed] = useState<number>(1);
+
+  // NEW: State for predicted temperatures (an array of five numbers)
+  const [predictedTemps, setPredictedTemps] = useState<number[]>([]);
 
   // Logs
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
@@ -77,6 +87,23 @@ export default function Dashboard() {
     };
     fetchLights();
     const interval = setInterval(fetchLights, 3000); 
+    return () => clearInterval(interval);
+  }, []);
+
+  // Poll predictions (line graph data)
+  useEffect(() => {
+    const fetchPredictions = async () => {
+      try {
+        const res = await fetch("http://192.168.1.13:8000/predict");
+        const data = await res.json();
+        setPredictedTemps(data.predicted || []);
+      } catch (error) {
+        console.error("Error fetching predicted temperatures", error);
+      }
+    };
+    // For demonstration, poll every 10 seconds; in production, you might poll less frequently (e.g., every hour)
+    fetchPredictions();
+    const interval = setInterval(fetchPredictions, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -179,6 +206,33 @@ export default function Dashboard() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Error downloading voice logs", error);
+    }
+  };
+
+  // Setup data for the line graph (predicted temperatures)
+  const chartData = {
+    labels: ['Hour 1', 'Hour 2', 'Hour 3', 'Hour 4', 'Hour 5'],
+    datasets: [
+      {
+        label: 'Predicted Temp (°C)',
+        data: predictedTemps,
+        fill: false,
+        backgroundColor: 'rgba(75,192,192,0.4)',
+        borderColor: 'rgba(75,192,192,1)'
+      }
+    ]
+  };
+
+  const chartOptions = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'top' as const,
+      },
+      title: {
+        display: true,
+        text: 'Next 5 Hours Temperature Prediction'
+      }
     }
   };
 
@@ -319,7 +373,7 @@ export default function Dashboard() {
                 max="32"
                 value={acTemp}
                 onChange={e => setAcTemp(Number(e.target.value))}
-                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 "
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
               <span className="ml-4 text-white">{acTemp}°C</span>
             </div>
@@ -381,6 +435,28 @@ export default function Dashboard() {
               Set Speed
             </button>
           </motion.div>
+        </div>
+
+        {/* Temperature Prediction Line Chart */}
+        <div className="mb-8 bg-[#141414] p-6 rounded-xl border border-[#1F1F1F]">
+          <h2 className="text-xl font-semibold text-white mb-4">Next 5 Hours Temperature Prediction</h2>
+          <Line data={{
+              labels: ['Hour 1', 'Hour 2', 'Hour 3', 'Hour 4', 'Hour 5'],
+              datasets: [{
+                label: 'Predicted Temperature (°C)',
+                data: predictedTemps,
+                fill: false,
+                backgroundColor: 'rgba(75,192,192,0.4)',
+                borderColor: 'rgba(75,192,192,1)',
+              }]
+            }}
+            options={{
+              responsive: true,
+              plugins: {
+                legend: { position: 'top' as const },
+                title: { display: true, text: 'Predicted Temperature for Next 5 Hours' },
+              },
+            }} />
         </div>
 
         {/* Camera and Logs */}
