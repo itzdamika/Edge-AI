@@ -29,6 +29,7 @@ from torchvision import transforms
 from scipy.spatial.distance import cosine
 import os
 import gc
+import queue
 
 embeddings_dir = "face_embeddings"  # Folder containing saved .npy embeddings
 threshold = 0.5  # Cosine similarity threshold
@@ -54,7 +55,6 @@ if os.path.exists(embeddings_dir):
 logging.info(f"Loaded {len(saved_embeddings)} face embeddings.")
 
 def preprocess_face(face_crop):
-    """Resize and preprocess a face crop for recognition."""
     face_resized = cv2.resize(face_crop, (160, 160))
     face_tensor = preprocess(face_resized).unsqueeze(0)
     return face_tensor
@@ -62,10 +62,8 @@ def preprocess_face(face_crop):
 def recognize_known_face():
     """
     Capture one frame from the webcam, detect faces via MTCNN,
-    then run the InceptionResnetV1 model to get an embedding and compare
-    with saved embeddings using cosine similarity.
-    Returns a tuple (recognized_name, distance). If no known face is detected,
-    recognized_name will be "Unknown".
+    compute embeddings via InceptionResnetV1, and compare with saved embeddings.
+    Returns (recognized_name, distance); if none is below threshold, returns ("Unknown", distance).
     """
     cap = cv2.VideoCapture(0)
     ret, frame = cap.read()
@@ -77,7 +75,6 @@ def recognize_known_face():
         return "Unknown", None
     recognized_name = "Unknown"
     min_distance = float('inf')
-    # Process each detected face
     for box in boxes:
         x1, y1, x2, y2 = [int(coord) for coord in box]
         x1, y1 = max(0, x1), max(0, y1)
@@ -89,7 +86,6 @@ def recognize_known_face():
                     face_tensor = preprocess_face(face_crop)
                     with torch.no_grad():
                         embedding = model(face_tensor.to(device)).detach().cpu().numpy().flatten()
-                    # Compare embedding with each saved embedding
                     for name, saved_embedding in saved_embeddings.items():
                         distance = cosine(embedding, saved_embedding.flatten())
                         if distance < min_distance:
@@ -139,7 +135,6 @@ class Config(BaseSettings):
     SPEECH_KEY: str
     SERVICE_REGION: str
     TTS_ENDPOINT: str
-
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 config = Config()
@@ -176,11 +171,39 @@ for pin in [KITCHEN_LIGHT_PIN, LIVINGROOM_AC_PIN, BEDROOM_FAN_PIN]:
     pi.set_mode(pin, pigpio.OUTPUT)
     pi.write(pin, 0)
 
+# Global state variables for on/off
 kitchen_state = "off"
 livingroom_state = "off"
 bedroom_state = "off"
 livingroom_ac_temp = 24
 bedroom_fan_speed = 1
+
+# ---------------------------
+# Indicator LED (Jumbo Light) Pin Configuration
+# ---------------------------
+# Connect RED LED to GPIO25, GREEN LED to GPIO26, and common ground.
+INDICATOR_RED_PIN = 25
+INDICATOR_GREEN_PIN = 26
+pi.set_mode(INDICATOR_RED_PIN, pigpio.OUTPUT)
+pi.write(INDICATOR_RED_PIN, 0)
+pi.set_mode(INDICATOR_GREEN_PIN, pigpio.OUTPUT)
+pi.write(INDICATOR_GREEN_PIN, 0)
+
+def blink_indicator(color: str, duration: float = 3.0):
+    """
+    Light the indicator LED in the specified color for a given duration.
+    Color can be "red" or "green".
+    """
+    if color.lower() == "red":
+        pi.write(INDICATOR_RED_PIN, 1)
+        time.sleep(duration)
+        pi.write(INDICATOR_RED_PIN, 0)
+    elif color.lower() == "green":
+        pi.write(INDICATOR_GREEN_PIN, 1)
+        time.sleep(duration)
+        pi.write(INDICATOR_GREEN_PIN, 0)
+    else:
+        logging.error("Invalid indicator color specified.")
 
 # ---------------------------
 # I2C and OLED Initialization
@@ -214,7 +237,7 @@ def update_display():
 threading.Thread(target=show_welcome_message, daemon=True).start()
 
 # ---------------------------
-# TFLite Occupant Detection (existing function remains available)
+# TFLite Occupant Detection Model Initialization
 # ---------------------------
 import tflite_runtime.interpreter as tflite
 occupant_interpreter = tflite.Interpreter(model_path="best_float16.tflite")
@@ -408,7 +431,7 @@ def control_livingroom_ac(state: str = Query(..., description="Light state: 'on'
         set_light_state(LIVINGROOM_AC_PIN, state)
         if state.lower() == "on":
             livingroom_state = "on"
-            livingroom_ac_temp = 16  # default when AC is turned on
+            livingroom_ac_temp = 16
         else:
             livingroom_state = "off"
         update_display()
@@ -424,7 +447,7 @@ def control_bedroom_fan(state: str = Query(..., description="Light state: 'on' o
         set_light_state(BEDROOM_FAN_PIN, state)
         if state.lower() == "on":
             bedroom_state = "on"
-            bedroom_fan_speed = 1  # default when Fan is turned on
+            bedroom_fan_speed = 1
         else:
             bedroom_state = "off"
         update_display()
@@ -471,7 +494,7 @@ def control_fan_speed(level: int = Query(..., description="Fan speed level betwe
 intent_prompt = """
 Analyze the user’s message and classify its intent into one of the following categories:
 
-1. **command-query**: Commands related to controlling devices in the home.
+1. *command-query*: Commands related to controlling devices in the home.
    Examples:
    - "On the lights"
    - "Turn on the lights"
@@ -480,10 +503,10 @@ Analyze the user’s message and classify its intent into one of the following c
    - "Off the AC"
    - "Turn on the fan"
 
-2. **general-query**: All other types of general questions or statements unrelated to home device control.
+2. *general-query*: All other types of general questions or statements unrelated to home device control.
 
-**Instructions:**
-- Respond with only one of the following intents: **command-query** or **general-query**.
+*Instructions:*
+- Respond with only one of the following intents: *command-query* or *general-query*.
 - Ensure that the intent is classified accurately based on the user’s message.
 """
 
@@ -499,15 +522,15 @@ You are responsible for controlling devices in the house:
 3) Bedroom Fan: 'fan-on' / 'fan-off' or 'fan-speed-X' where X is 1, 2, or 3.
 Additionally, if the user says "I'm leaving", turn off all devices.
 
-**Guidelines:**
+*Guidelines:*
 - Respond only with one of the following actions: 
   kitchen-on, kitchen-off, 
   ac-on, ac-off, ac-temp-XX,
   fan-on, fan-off, fan-speed-X,
   or the special command "im leaving" for turning off all devices.
 - If the request does not match any valid action, respond with "error".
-
-**Examples of valid commands:**
+  
+*Examples of valid commands:*
 - "Lights on" => 'kitchen-on'
 - "Turn on the lights" => 'kitchen-on'
 - "Lights off" => 'kitchen-off'
@@ -520,7 +543,7 @@ Additionally, if the user says "I'm leaving", turn off all devices.
 - "Set fan speed to 2" => 'fan-speed-2'
 - "I'm leaving" => special command to turn everything off
 
-**Important Notes:**
+*Important Notes:*
 - No additional text or explanation is required. Only respond with the action corresponding to the command or "error" if there is no match.
 """
 
@@ -744,9 +767,10 @@ def automation_controller():
         motion = latest_data.get('motion', False)
         if motion:
             log_system("PIR sensor: Occupant detected.")
-            # Instead of using TFLite detection, now use face recognition to obtain a name.
             name, dist = recognize_known_face()
             if name != "Unknown":
+                # Blink the indicator green for 3 seconds if a known face is detected
+                blink_indicator("green", 3)
                 log_system(f"{name} is detected.")
                 now = datetime.datetime.now()
                 if now.hour >= 18 or now.hour < 6:
@@ -785,14 +809,65 @@ def automation_controller():
                             bedroom_state = "off"
                         log_system("Automated: Comfortable temperature detected. AC and Fan turned OFF.")
                     update_display()
-                time.sleep(20)  # reduced wait time before next check
+                time.sleep(20)
             else:
+                # Blink red indicator for 3 seconds if unknown face is detected
+                blink_indicator("red", 3)
                 log_system("Unknown face detected.")
                 time.sleep(5)
         else:
             time.sleep(2)
 
 threading.Thread(target=automation_controller, daemon=True).start()
+
+# ---------------------------
+# Azure IoT Hub Telemetry Sender
+# ---------------------------
+from azure.iot.device import ProvisioningDeviceClient, IoTHubDeviceClient, Message
+
+def iot_telemetry_sender():
+    id_scope = "0ne00E9E05C"
+    registration_id = "4p4h03etwy"
+    symmetric_key = "MZfVRBR3sjtujB3uT4SnLgDV10ArlfY7U8BirdL9ZFA="
+    provisioning_host = "global.azure-devices-provisioning.net"
+    provisioning_client = ProvisioningDeviceClient.create_from_symmetric_key(
+        provisioning_host=provisioning_host,
+        registration_id=registration_id,
+        id_scope=id_scope,
+        symmetric_key=symmetric_key
+    )
+    registration_result = provisioning_client.register()
+    if registration_result.status != "assigned":
+        raise RuntimeError("Could not register device. Status: {}".format(registration_result.status))
+    device_client = IoTHubDeviceClient.create_from_symmetric_key(
+        symmetric_key=symmetric_key,
+        hostname=registration_result.registration_state.assigned_hub,
+        device_id=registration_id
+    )
+    device_client.connect()
+    try:
+        while True:
+            telemetry = {
+                "Temperature": latest_data.get("temperature"),
+                "Humidity": latest_data.get("humidity"),
+                "AirQuality": latest_data.get("air_quality"),
+                "Motion": latest_data.get("motion"),
+                "ACTemperature": livingroom_ac_temp,
+                "FanSpeed": bedroom_fan_speed,
+                "Timestamp": time.time()
+            }
+            msg = Message(json.dumps(telemetry))
+            msg.content_type = "application/json"
+            msg.content_encoding = "utf-8"
+            print(f"Sending telemetry: {telemetry}")
+            device_client.send_message(msg)
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print("Telemetry sender stopped by user.")
+    finally:
+        device_client.disconnect()
+
+threading.Thread(target=iot_telemetry_sender, daemon=True).start()
 
 if __name__ == "__main__":
     try:
