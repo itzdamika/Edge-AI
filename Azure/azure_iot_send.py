@@ -33,15 +33,17 @@ try:
         temperature = round(random.uniform(20.0, 30.0), 2)
         humidity = round(random.uniform(30.0, 70.0), 2)
         motion = random.choice([True, False])
-        face_detection = random.choice([True, False])
-        air_quality = round(random.uniform(0.0, 1.0), 2) 
+        air_quality = random.choice(["Good", "Poor"])
+        fan_speed = random.choice([1, 2, 3])
+        ac_temperature = round(random.uniform(18.0, 26.0), 1)
 
         telemetry = {
             "Temperature": temperature,
             "Humidity": humidity,
-            "FaceDetection": face_detection,
             "Motion": motion,
-            "AirQuality": air_quality
+            "AirQuality": air_quality,
+            "FanSpeed": fan_speed,
+            "ACTemperature": ac_temperature
         }
 
         msg = Message(json.dumps(telemetry))
