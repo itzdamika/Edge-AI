@@ -23,6 +23,14 @@ import smtplib
 from email.message import EmailMessage
 from uuid import uuid4
 from apscheduler.schedulers.background import BackgroundScheduler
+import pandas as pd
+import os
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv1D, Dropout, Flatten, Dense, Reshape
+import tensorflow as tf
+
 
 # ---------------------------
 # Scheduler Setup
@@ -33,7 +41,7 @@ scheduler.start()
 def send_email_notification():
     # Email credentials and recipient
     email_sender = "contact.smartaura@gmail.com"
-    email_password = "wcxn qqis eioe lkbx"  # your Gmail app password
+    email_password = "wcxn qqis eioe lkbx"
     email_receiver = "damikaudantha@gmail.com"
     
     subject = "Unknown face detected warning"
@@ -47,7 +55,6 @@ def send_email_notification():
     em.set_content(body)
     
     try:
-        # Connect to the Gmail SMTP server using TLS
         with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
             smtp.ehlo()
             smtp.starttls()
@@ -56,6 +63,89 @@ def send_email_notification():
             logging.info("Email sent successfully to %s", email_receiver)
     except Exception as e:
         logging.error("Failed to send email notification: %s", e)
+
+
+TEMPERATURE_LOG_CSV = "temperature_log.csv"
+RETRAIN_MODEL_H5 = "prediction_model_temp.h5"
+RETRAIN_MODEL_TFLITE = "temperature_model_new2.tflite"
+
+def log_hourly_temperature():
+    temp = latest_data.get("temperature")
+    if temp is None:
+        return
+
+    now = datetime.datetime.now()
+    df = pd.DataFrame([{
+        "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "temperature_celsius": temp
+    }])
+
+    write_header = not os.path.exists(TEMPERATURE_LOG_CSV)
+    df.to_csv(
+        TEMPERATURE_LOG_CSV,
+        mode="a",
+        header=write_header,
+        index=False
+    )
+    logger.info("Logged hourly temperature", timestamp=now, temp=temp)
+
+def retrain_model_daily():
+    if not os.path.exists(TEMPERATURE_LOG_CSV):
+        logger.warning("No temperature log found; skipping retrain.")
+        return
+
+    df = pd.read_csv(TEMPERATURE_LOG_CSV, parse_dates=["timestamp"])
+    temps = df["temperature_celsius"].values.reshape(-1, 1)
+
+    scaler = MinMaxScaler()
+    scaled = scaler.fit_transform(temps)
+
+    LOOKBACK, FORWARD = 5, 5
+    X, y = [], []
+    for i in range(len(scaled) - LOOKBACK - FORWARD + 1):
+        X.append(scaled[i : i + LOOKBACK])
+        y.append(scaled[i + LOOKBACK : i + LOOKBACK + FORWARD])
+    X = np.array(X)
+    y = np.array(y).reshape(-1, FORWARD, 1)
+
+    split = int(0.8 * len(X))
+    X_train, X_val = X[:split], X[split:]
+    y_train, y_val = y[:split], y[split:]
+
+    model = Sequential([
+        Conv1D(32, kernel_size=2, activation="relu", input_shape=(LOOKBACK, 1)),
+        Dropout(0.2),
+        Flatten(),
+        Dense(64, activation="relu"),
+        Dense(FORWARD),
+        Reshape((FORWARD, 1))
+    ])
+    model.compile(optimizer="adam", loss="mse", metrics=["mae"])
+    es = EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True)
+    model.fit(
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        epochs=50,
+        batch_size=32,
+        callbacks=[es],
+        verbose=0
+    )
+
+    os.makedirs(os.path.dirname(RETRAIN_MODEL_H5), exist_ok=True)
+    model.save(RETRAIN_MODEL_H5)
+    logger.info("Saved retrained Keras model", path=RETRAIN_MODEL_H5)
+
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    tflite_model = converter.convert()
+    with open(RETRAIN_MODEL_TFLITE, "wb") as f:
+        f.write(tflite_model)
+    logger.info("Saved retrained TFLite model", path=RETRAIN_MODEL_TFLITE)
+
+scheduler.add_job(log_hourly_temperature, 'cron', minute=0, id='hourly_temp_log')
+
+scheduler.add_job(retrain_model_daily, 'cron', hour=0, minute=0, id='daily_model_retrain')
 
 
 # ---------------------------
@@ -69,8 +159,8 @@ import os
 import gc
 import queue
 
-embeddings_dir = "face_embeddings"  # Folder containing saved .npy embeddings
-threshold = 0.5  # Cosine similarity threshold
+embeddings_dir = "face_embeddings"
+threshold = 0.5
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 mtcnn = MTCNN(keep_all=True, device=device)
@@ -82,7 +172,6 @@ preprocess = transforms.Compose([
     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-# Load saved embeddings into a dictionary {name: embedding}
 saved_embeddings = {}
 if os.path.exists(embeddings_dir):
     for filename in os.listdir(embeddings_dir):
@@ -251,7 +340,6 @@ bedroom_state = "off"
 livingroom_ac_temp = 24
 bedroom_fan_speed = 1
 
-# NEW: Global flag to indicate system automation is active
 system_automation_started = False
 
 # ---------------------------
@@ -567,40 +655,31 @@ def control_fan_speed(level: int = Query(..., description="Fan speed level betwe
 # Temperature Prediction Module
 # ---------------------------
 # Global variables for temperature prediction
-temperature_history = []           # Last 5 hourly temperature readings in Celsius
-latest_temperature_prediction = [] # Predicted next 5 hours temperatures in Celsius
+temperature_history = []
+latest_temperature_prediction = []
 
 def predict_temperature(model_path: str, input_temps: list) -> list:
     """
     Predict the next 5 hours of temperature given the last 5 hourly readings (in Celsius).
     Uses a TFLite model with built-in MinMax scaling.
     """
-    # Load the TFLite model
     interpreter = tflite.Interpreter(model_path=model_path)
     interpreter.allocate_tensors()
     
-    # Get input and output tensor details
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
     
-    # Hardcoded scaling parameters (from training data with MinMaxScaler with feature_range=(0, 1))
-    scale_min = 273.0   # Minimum temperature (in Kelvin)
-    scale_max = 293.1   # Maximum temperature (in Kelvin)
+    scale_min = 273.0
+    scale_max = 293.1
     
-    # Prepare input: convert list to numpy array (float32)
     input_data = np.array(input_temps, dtype=np.float32)
-    # Convert Celsius to Kelvin
     input_kelvin = input_data + 273.15
-    # Scale the data
     input_scaled = (input_kelvin - scale_min) / (scale_max - scale_min)
-    # Reshape for model input: [1, 5, 1]
     input_reshaped = input_scaled.reshape(1, 5, 1).astype(np.float32)
     
-    # Set tensor and invoke
     interpreter.set_tensor(input_details[0]['index'], input_reshaped)
     interpreter.invoke()
     
-    # Get and process the output
     prediction_scaled = interpreter.get_tensor(output_details[0]['index'])
     prediction_reshaped = prediction_scaled.reshape(-1)
     prediction_kelvin = prediction_reshaped * (scale_max - scale_min) + scale_min
@@ -615,28 +694,24 @@ def temperature_prediction_updater():
     """
     global temperature_history, latest_temperature_prediction, latest_data
     while True:
-        # Get the current temperature reading from sensor data.
         current_temp = latest_data.get("temperature")
-        # If current sensor reading is None, use the last valid reading or a default value.
         if current_temp is None:
             if temperature_history and temperature_history[-1] is not None:
                 current_temp = temperature_history[-1]
             else:
-                current_temp = 20.0  # default value if no previous valid reading exists
+                current_temp = 30.0
 
-        # Ensure that we have a full history of valid values.
         if len(temperature_history) < 5:
             temperature_history = [current_temp] * 5
         else:
             temperature_history.pop(0)
             temperature_history.append(current_temp)
         try:
-            latest_temperature_prediction = predict_temperature("temperature_model_new.tflite", temperature_history)
+            latest_temperature_prediction = predict_temperature("temperature_model_new2.tflite", temperature_history)
             logger.info("Temperature prediction updated", prediction=latest_temperature_prediction)
         except Exception as e:
             logger.error("Temperature prediction error", error=str(e))
             latest_temperature_prediction = []
-        # Sleep for 1 hour (3600 seconds); adjust the interval for testing if needed.
         time.sleep(3600)
 
 
