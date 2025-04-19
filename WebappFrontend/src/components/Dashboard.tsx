@@ -175,6 +175,9 @@ export default function Dashboard() {
     ]
   };
 
+  const now = new Date();
+
+
   // Toggle function for device on/off controls
   const toggleLight = async (light: string) => {
     let newState: boolean;
@@ -324,7 +327,7 @@ export default function Dashboard() {
           >
             <div className="flex items-center gap-3">
               <Snowflake className="w-6 h-6 text-cyan-400" />
-              <h3 className="text-lg font-semibold text-white">Living Room AC</h3>
+              <h3 className="text-lg font-semibold text-white">Room AC</h3>
             </div>
             <motion.button
               whileHover={{ scale: 1 }}
@@ -447,85 +450,107 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
-        {/* Temperature Prediction Graph */}
-        <div className="bg-[#141414] p-6 rounded-xl border border-[#1F1F1F] mb-8">
+      <div className="bg-[#141414] p-6 rounded-xl border border-[#1F1F1F] mb-8">
           <h2 className="text-xl font-semibold text-white mb-4">Temperature Prediction (Next 5 Hours)</h2>
           <Line data={chartData} />
         </div>
 
-        <div className="bg-[#141414] p-6 rounded-xl border mb-8">
-          <h2 className="text-xl font-semibold text-white mb-4">Schedule AC &amp; Fan</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-white">Start Time</label>
-              <DatePicker
-                selected={startTime}
-                onChange={date => setStartTime(date)}
-                showTimeSelect
-                dateFormat="Pp"
-                className="w-full p-2 rounded bg-gray-700 text-white"
-              />
-            </div>
-            <div>
-              <label className="text-white">End Time</label>
-              <DatePicker
-                selected={endTime}
-                onChange={date => setEndTime(date)}
-                showTimeSelect
-                dateFormat="Pp"
-                className="w-full p-2 rounded bg-gray-700 text-white"
-              />
-            </div>
-          </div>
-          <div className="mt-4 flex gap-4">
-            <div>
-              <label className="text-white">AC Temp (°C)</label>
-              <input
-                type="number"
-                min={16}
-                max={32}
-                value={acTemp}
-                onChange={e => setAcTemp(Number(e.target.value))}
-                className="p-2 rounded bg-gray-700 text-white"
-              />
-            </div>
-            <div>
-              <label className="text-white">Fan Speed</label>
-              <input
-                type="number"
-                min={1}
-                max={3}
-                value={fanSpeed}
-                onChange={e => setFanSpeed(Number(e.target.value))}
-                className="p-2 rounded bg-gray-700 text-white"
-              />
-            </div>
-          </div>
-          <button
-            onClick={async () => {
-              if (!startTime || !endTime) return toast.error("Select both start and end times");
-              try {
-                const res = await fetch("http://192.168.8.191:8000/schedule", {
-                  method: "POST",
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    start_time: startTime.toISOString(),
-                    end_time: endTime.toISOString(),
-                    ac_temp: acTemp,
-                    fan_speed: fanSpeed
-                  }),
-                });
-                if (res.ok) toast.success("Schedule created!");
-                else toast.error("Failed to create schedule");
-              } catch (err) {
-                toast.error("Error creating schedule");
-              }
-            }}
-            className="mt-4 bg-blue-500 px-4 py-2 rounded"
-          >
-            Create Schedule
-          </button>
+        <div className="bg-[#141414] p-6 rounded-2xl border border-[#1F1F1F] mb-8 shadow-lg">
+      <h2 className="text-2xl font-semibold text-white mb-4">
+        Schedule AC &amp; Fan
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <label className="block text-white mb-1">Start Time</label>
+          <DatePicker
+            selected={startTime}
+            onChange={date => setStartTime(date)}
+            showTimeSelect
+            dateFormat="Pp"
+            minDate={now}
+            className="w-full p-2 rounded bg-[#262626] text-white"
+          />
         </div>
+        <div>
+          <label className="block text-white mb-1">End Time</label>
+          <DatePicker
+            selected={endTime}
+            onChange={date => setEndTime(date)}
+            showTimeSelect
+            dateFormat="Pp"
+            minDate={startTime || now}
+            className="w-full p-2 rounded bg-[#262626] text-white"
+          />
+        </div>
+      </div>
+
+      {/* AC Temp Slider & Fan Speed Buttons */}
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* AC Temperature Slider */}
+        <div>
+          <label className="block text-white mb-1">AC Temperature (°C)</label>
+          <input
+            type="range"
+            min={16}
+            max={32}
+            value={acTemp}
+            onChange={e => setAcTemp(Number(e.target.value))}
+            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+          />
+          <div className="mt-2 text-white font-medium">{acTemp}°C</div>
+        </div>
+
+        {/* Fan Speed Buttons */}
+        <div>
+          <label className="block text-white mb-1">Fan Speed</label>
+          <div className="flex space-x-3">
+            {[1, 2, 3].map(level => (
+              <button
+                key={level}
+                onClick={() => setFanSpeed(level)}
+                className={`w-12 h-12 flex items-center justify-center rounded-full text-white font-semibold transition-colors \
+                  ${fanSpeed === level ? 'bg-green-500' : 'bg-[#262626] hover:bg-[#353535]'}`}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={async () => {
+          if (!startTime || !endTime) {
+            return toast.error('Please select both start and end times.');
+          }
+          if (startTime < now) {
+            return toast.error('Start time cannot be in the past.');
+          }
+          if (endTime <= startTime) {
+            return toast.error('End time must be after start time.');
+          }
+          try {
+            const res = await fetch('http://192.168.8.191:8000/schedule', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                start_time: startTime.toISOString(),
+                end_time: endTime.toISOString(),
+                ac_temp: acTemp,
+                fan_speed: fanSpeed
+              }),
+            });
+            if (res.ok) toast.success('Schedule created successfully!');
+            else toast.error('Failed to create schedule.');
+          } catch (err) {
+            toast.error('Error creating schedule.');
+          }
+        }}
+        className="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+      >
+        Create Schedule
+      </button>
+    </div>
 
         {/* Camera and Logs */}
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
