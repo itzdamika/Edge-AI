@@ -13,7 +13,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   login: async (username, password) => {
     try {
-      const response = await axios.post('http://192.168.1.13:8000/login', {
+      const response = await axios.post('http://192.168.8.191:8000/login', {
         username,
         password,
       });

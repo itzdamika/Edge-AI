@@ -21,7 +21,14 @@ from pydantic import BaseModel
 import numpy as np
 import smtplib
 from email.message import EmailMessage
+from uuid import uuid4
+from apscheduler.schedulers.background import BackgroundScheduler
 
+# ---------------------------
+# Scheduler Setup
+# ---------------------------
+scheduler = BackgroundScheduler()
+scheduler.start()
 
 def send_email_notification():
     # Email credentials and recipient
@@ -136,6 +143,12 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+class ScheduleRequest(BaseModel):
+    start_time: datetime.datetime
+    end_time: datetime.datetime
+    ac_temp: int
+    fan_speed: int
+
 # ---------------------------
 # Logging Configuration
 # ---------------------------
@@ -180,6 +193,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# In-memory schedule store
+schedules = {}
+
+@app.post("/schedule")
+def create_schedule(req: ScheduleRequest):
+    on_id, off_id = str(uuid4()), str(uuid4())
+    def turn_on():
+        global livingroom_state, livingroom_ac_temp, bedroom_state, bedroom_fan_speed
+        set_light_state(LIVINGROOM_AC_PIN, 'on')
+        livingroom_state, livingroom_ac_temp = 'on', req.ac_temp
+        set_light_state(BEDROOM_FAN_PIN, 'on')
+        bedroom_state, bedroom_fan_speed = 'on', req.fan_speed
+        update_display()
+        log_system(f"Scheduled ON: AC={req.ac_temp}, Fan={req.fan_speed}")
+    def turn_off():
+        global livingroom_state, bedroom_state
+        set_light_state(LIVINGROOM_AC_PIN, 'off')
+        set_light_state(BEDROOM_FAN_PIN, 'off')
+        livingroom_state = 'off'
+        bedroom_state = 'off'
+        update_display()
+        log_system("Scheduled OFF: AC and Fan OFF")
+    scheduler.add_job(turn_on, 'date', run_date=req.start_time, id=on_id)
+    scheduler.add_job(turn_off, 'date', run_date=req.end_time, id=off_id)
+    schedules[on_id] = req.dict()
+    return {"schedule_id": on_id}
+
+@app.get("/schedules")
+def list_schedules():
+    return schedules
 
 # ---------------------------
 # Sensor & Light Control Initialization

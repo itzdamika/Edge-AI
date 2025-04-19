@@ -20,6 +20,8 @@ import {
 import toast from 'react-hot-toast';
 import type { SensorData } from '../types';
 
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 // Import Chart.js and react-chartjs-2 components for the temperature prediction graph
 import { Line } from 'react-chartjs-2';
 import {
@@ -46,6 +48,10 @@ export default function Dashboard() {
   const [kitchenLight, setKitchenLight] = useState(false);
   const [livingRoomAc, setLivingRoomAc] = useState(false);
   const [bedroomFan, setBedroomFan] = useState(false);
+  // New schedule states:
+  const [startTime, setStartTime] = useState<Date | null>(null);
+  const [endTime, setEndTime] = useState<Date | null>(null);
+
 
   // States for AC Temperature and Fan Speed
   const [acTemp, setAcTemp] = useState<number>(24);
@@ -65,7 +71,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchLiveData = async () => {
       try {
-        const res = await fetch("http://192.168.1.13:8000/sensors");
+        const res = await fetch("http://192.168.8.191:8000/sensors");
         const data = await res.json();
         setLiveSensors({
           temperature: data.temperature,
@@ -85,7 +91,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchLights = async () => {
       try {
-        const res = await fetch("http://192.168.1.13:8000/lights");
+        const res = await fetch("http://192.168.8.191:8000/lights");
         const data = await res.json();
         setKitchenLight(data.kitchen === "on");
         setLivingRoomAc(data.livingroom === "on");
@@ -105,7 +111,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const res = await fetch("http://192.168.1.13:8000/logs");
+        const res = await fetch("http://192.168.8.191:8000/logs");
         const data = await res.json();
         setSystemLogs(data);
       } catch (error) {
@@ -121,7 +127,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchVoiceLogs = async () => {
       try {
-        const res = await fetch("http://192.168.1.13:8000/voicelogs");
+        const res = await fetch("http://192.168.8.191:8000/voicelogs");
         const data = await res.json();
         setVoiceLogs(data);
       } catch (error) {
@@ -137,7 +143,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchPrediction = async () => {
       try {
-        const res = await fetch("http://192.168.1.13:8000/temperature_prediction");
+        const res = await fetch("http://192.168.8.191:8000/temperature_prediction");
         const data = await res.json();
         // data.temperature_prediction is expected to be an array of 5 predicted values
         console.log(data.temperature_prediction);
@@ -175,13 +181,13 @@ export default function Dashboard() {
     let endpoint = "";
     if (light === "kitchen") {
       newState = !kitchenLight;
-      endpoint = `http://192.168.1.13:8000/light/kitchen?state=${newState ? "on" : "off"}`;
+      endpoint = `http://192.168.8.191:8000/light/kitchen?state=${newState ? "on" : "off"}`;
     } else if (light === "livingroom") {
       newState = !livingRoomAc;
-      endpoint = `http://192.168.1.13:8000/light/livingroom?state=${newState ? "on" : "off"}`;
+      endpoint = `http://192.168.8.191:8000/light/livingroom?state=${newState ? "on" : "off"}`;
     } else if (light === "bedroom") {
       newState = !bedroomFan;
-      endpoint = `http://192.168.1.13:8000/light/bedroom?state=${newState ? "on" : "off"}`;
+      endpoint = `http://192.168.8.191:8000/light/bedroom?state=${newState ? "on" : "off"}`;
     } else {
       return;
     }
@@ -209,7 +215,7 @@ export default function Dashboard() {
   // Functions for downloading logs as JSON files
   const downloadSystemLogs = async () => {
     try {
-      const res = await fetch("http://192.168.1.13:8000/logs");
+      const res = await fetch("http://192.168.8.191:8000/logs");
       const data = await res.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
@@ -225,7 +231,7 @@ export default function Dashboard() {
 
   const downloadVoiceLogs = async () => {
     try {
-      const res = await fetch("http://192.168.1.13:8000/voicelogs");
+      const res = await fetch("http://192.168.8.191:8000/voicelogs");
       const data = await res.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
@@ -284,12 +290,6 @@ export default function Dashboard() {
               <p className="text-3xl font-bold mt-2">{sensor.value}</p>
             </motion.div>
           ))}
-        </div>
-
-        {/* Temperature Prediction Graph */}
-        <div className="bg-[#141414] p-6 rounded-xl border border-[#1F1F1F] mb-8">
-          <h2 className="text-xl font-semibold text-white mb-4">Temperature Prediction (Next 5 Hours)</h2>
-          <Line data={chartData} />
         </div>
 
         {/* Device Control Toggles for Lights */}
@@ -390,7 +390,7 @@ export default function Dashboard() {
             <button
               onClick={async () => {
                 try {
-                  const res = await fetch(`http://192.168.1.13:8000/ac/temp?value=${acTemp}`);
+                  const res = await fetch(`http://192.168.8.191:8000/ac/temp?value=${acTemp}`);
                   if (res.ok) {
                     toast.success("AC temperature updated");
                   } else {
@@ -430,7 +430,7 @@ export default function Dashboard() {
             <button
               onClick={async () => {
                 try {
-                  const res = await fetch(`http://192.168.1.13:8000/fan/speed?level=${fanSpeed}`);
+                  const res = await fetch(`http://192.168.8.191:8000/fan/speed?level=${fanSpeed}`);
                   if (res.ok) {
                     toast.success("Fan speed updated");
                   } else {
@@ -445,6 +445,86 @@ export default function Dashboard() {
               Set Speed
             </button>
           </motion.div>
+        </div>
+
+        {/* Temperature Prediction Graph */}
+        <div className="bg-[#141414] p-6 rounded-xl border border-[#1F1F1F] mb-8">
+          <h2 className="text-xl font-semibold text-white mb-4">Temperature Prediction (Next 5 Hours)</h2>
+          <Line data={chartData} />
+        </div>
+
+        <div className="bg-[#141414] p-6 rounded-xl border mb-8">
+          <h2 className="text-xl font-semibold text-white mb-4">Schedule AC &amp; Fan</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-white">Start Time</label>
+              <DatePicker
+                selected={startTime}
+                onChange={date => setStartTime(date)}
+                showTimeSelect
+                dateFormat="Pp"
+                className="w-full p-2 rounded bg-gray-700 text-white"
+              />
+            </div>
+            <div>
+              <label className="text-white">End Time</label>
+              <DatePicker
+                selected={endTime}
+                onChange={date => setEndTime(date)}
+                showTimeSelect
+                dateFormat="Pp"
+                className="w-full p-2 rounded bg-gray-700 text-white"
+              />
+            </div>
+          </div>
+          <div className="mt-4 flex gap-4">
+            <div>
+              <label className="text-white">AC Temp (°C)</label>
+              <input
+                type="number"
+                min={16}
+                max={32}
+                value={acTemp}
+                onChange={e => setAcTemp(Number(e.target.value))}
+                className="p-2 rounded bg-gray-700 text-white"
+              />
+            </div>
+            <div>
+              <label className="text-white">Fan Speed</label>
+              <input
+                type="number"
+                min={1}
+                max={3}
+                value={fanSpeed}
+                onChange={e => setFanSpeed(Number(e.target.value))}
+                className="p-2 rounded bg-gray-700 text-white"
+              />
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              if (!startTime || !endTime) return toast.error("Select both start and end times");
+              try {
+                const res = await fetch("http://192.168.8.191:8000/schedule", {
+                  method: "POST",
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    start_time: startTime.toISOString(),
+                    end_time: endTime.toISOString(),
+                    ac_temp: acTemp,
+                    fan_speed: fanSpeed
+                  }),
+                });
+                if (res.ok) toast.success("Schedule created!");
+                else toast.error("Failed to create schedule");
+              } catch (err) {
+                toast.error("Error creating schedule");
+              }
+            }}
+            className="mt-4 bg-blue-500 px-4 py-2 rounded"
+          >
+            Create Schedule
+          </button>
         </div>
 
         {/* Camera and Logs */}
@@ -484,7 +564,7 @@ export default function Dashboard() {
                   <X className="w-4 h-4" />
                 </motion.button>
                 <img
-                  src="http://192.168.1.13:8000/video_feed"
+                  src="http://192.168.8.191:8000/video_feed"
                   alt="Live Camera Feed"
                   className="w-full rounded-lg"
                 />
