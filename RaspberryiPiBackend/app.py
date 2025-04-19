@@ -587,7 +587,7 @@ def temperature_prediction_updater():
             temperature_history.pop(0)
             temperature_history.append(current_temp)
         try:
-            latest_temperature_prediction = predict_temperature("temperature_model.tflite", temperature_history)
+            latest_temperature_prediction = predict_temperature("temperature_model_new.tflite", temperature_history)
             logger.info("Temperature prediction updated", prediction=latest_temperature_prediction)
         except Exception as e:
             logger.error("Temperature prediction error", error=str(e))
