@@ -1,0 +1,8 @@
+openai
+pydantic_settings
+speechrecognition
+pyttsx3
+pyaudio
+azure-cognitiveservices-speech
+structlog
+RPi.GPIO
