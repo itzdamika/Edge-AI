@@ -9,12 +9,6 @@ SmartAura is a comprehensive smart-home platform that integrates local edge inte
 1. [Features](#features)
 2. [Architecture](#architecture)
 3. [Prerequisites](#prerequisites)
-4. [Installation & Configuration](#installation--configuration)
-5. [Usage](#usage)
-6. [Project Structure](#project-structure)
-7. [Environment Variables](#environment-variables)
-8. [Contributing](#contributing)
-9. [License](#license)
 
 ---
 
@@ -48,8 +42,6 @@ SmartAura is a comprehensive smart-home platform that integrates local edge inte
 ---
 
 ## 🏗 Architecture
-
-![SmartAura Architecture](docs/architecture.png)
 
 1. **Raspberry Pi Edge** runs FastAPI for sensors, control, scheduling, ML training & inference.
 2. **React Dashboard** communicates via HTTP to the Pi and optionally views Azure IoT Central.
