@@ -1,0 +1,20 @@
+description: Ultralytics YOLO11n model trained on /kaggle/working/Person-detection-16/data.yaml
+author: Ultralytics
+date: '2025-04-05T19:44:45.919331'
+version: 8.3.102
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: Persona
+args:
+  batch: 1
+  fraction: 1.0
+  half: false
+  int8: false
+  nms: false

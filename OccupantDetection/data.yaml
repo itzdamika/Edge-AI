@@ -1,0 +1,6 @@
+path: c:\Users\User\Desktop\Edge-AI\OccupantDetection\Input\data
+train: c:\Users\User\Desktop\Edge-AI\OccupantDetection\split_dataset\train
+val: c:\Users\User\Desktop\Edge-AI\OccupantDetection\split_dataset\val
+nc: 1
+names:
+- Person
